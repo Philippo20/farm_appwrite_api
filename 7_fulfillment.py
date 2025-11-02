@@ -1,0 +1,165 @@
+from main import client, db_id
+from main import db_collection_id7
+from appwrite.services.databases import Databases
+
+db = Databases(client)
+
+# define attributes
+result = db.create_string_attribute(
+    database_id= db_id,
+    collection_id= db_collection_id7,
+    key="fulfillment_id",
+    size= 225,
+    required= True
+)
+
+result = db.create_string_attribute(
+    database_id= db_id,
+    collection_id= db_collection_id7,
+    key="batch_number",
+    size= 225,
+    required= True
+)
+
+result = db.create_string_attribute(
+    database_id= db_id,
+    collection_id= db_collection_id7,
+    key="farm_manager_id",
+    size= 225,
+    required= True
+)
+
+result = db.create_string_attribute(
+    database_id= db_id,
+    collection_id= db_collection_id7,
+    key="farm_name",
+    size= 225,
+    required= True
+)
+
+result = db.create_string_attribute(
+    database_id= db_id,
+    collection_id= db_collection_id7,
+    key="plant_type",
+    size= 225,
+    required= True
+)
+
+result = db.create_float_attribute(
+    database_id= db_id,
+    collection_id= db_collection_id7,
+    key="total_heads",
+    required= True,
+)
+
+result = db.create_float_attribute(
+    database_id= db_id,
+    collection_id= db_collection_id7,
+    key="total_weight",
+    required= True,
+)
+
+result = db.create_string_attribute(
+    database_id= db_id,
+    collection_id= db_collection_id7,
+    key="harvest_received_images",
+    size= 225,
+    required= True
+)
+
+result = db.create_string_attribute(
+    database_id= db_id,
+    collection_id= db_collection_id7,
+    key="packaging_supervisor_id",
+    size= 225,
+    required= True
+)
+
+result = db.create_string_attribute(
+    database_id= db_id,
+    collection_id= db_collection_id7,
+    key="packaging_type",
+    size= 225,
+    required= True
+)
+
+result = db.create_float_attribute(
+    database_id= db_id,
+    collection_id= db_collection_id7,
+    key="packaging_weight",
+    required= True,
+)
+
+result = db.create_float_attribute(
+    database_id= db_id,
+    collection_id= db_collection_id7,
+    key="total_packaged_weight",
+    required= True,
+)
+
+result = db.create_string_attribute(
+    database_id= db_id,
+    collection_id= db_collection_id7,
+    key="packaging_waste_type",
+    size= 225,
+    required= True
+)
+
+result = db.create_string_attribute(
+    database_id= db_id,
+    collection_id= db_collection_id7,
+    key="packaging_waste_weight",
+    size= 225,
+    required= False
+)
+
+result = db.create_string_attribute(
+    database_id= db_id,
+    collection_id= db_collection_id7,
+    key="packaging_images",
+    size= 225,
+    required= True
+)
+
+result = db.create_float_attribute(
+    database_id= db_id,
+    collection_id= db_collection_id7,
+    key="yield_loss_percentage",
+    required= True,
+)
+
+result = db.create_datetime_attribute(
+    database_id= db_id,
+    collection_id= db_collection_id7,
+    key="received_date_time",
+    required= True
+)
+
+result = db.create_datetime_attribute(
+    database_id= db_id,
+    collection_id= db_collection_id7,
+    key="packaging_date_time",
+    required= True
+)
+
+result = db.create_boolean_attribute(
+    database_id= db_id,
+    collection_id= db_collection_id7,
+    key="sent_to_sales",
+    required= True
+)
+
+result = db.create_datetime_attribute(
+    database_id= db_id,
+    collection_id= db_collection_id7,
+    key="sent_to_sales_date_time",
+    required= True
+)
+
+result = db.create_enum_attribute(
+    database_id= db_id,
+    collection_id= db_collection_id7,
+    key="status",
+    elements=["Received", "Packaging", "Packaged", "Sent to Sales", "Completed"],
+    required= True
+)

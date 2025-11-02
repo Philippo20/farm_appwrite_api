@@ -1,0 +1,6 @@
+fastapi[standard]
+appwrite==11.0.0
+python-multipart
+python-dotenv
+pyjwt
+bcrypt

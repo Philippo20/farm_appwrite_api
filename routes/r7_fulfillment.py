@@ -1,0 +1,177 @@
+from fastapi import APIRouter, Form, HTTPException, status
+from typing import Annotated
+from enum import Enum
+from datetime import datetime, date
+from main import db_id, db_collection_id7
+from db import db
+from appwrite.id import ID
+
+collection7_router = APIRouter(tags=["Fulfillment"])
+
+class Status(str, Enum):
+    ACTIVE = "Received"
+    INACTIVE = "Packaging"
+    PENDING= "Packaged"
+    SENT_TO_SALES = "Sent to Sales"
+    COMPLETED= "Completed"
+
+@collection7_router.post("/fulfillment/info")
+def register_fulfillment(
+        batch_number: Annotated[str, Form()],
+        farm_manager_id: Annotated[str, Form()],
+        farm_name: Annotated[str, Form()],
+        plant_type: Annotated[str, Form()],
+        total_heads: Annotated[float, Form(...)],
+        total_weight: Annotated[float, Form()],
+        harvest_received_images: Annotated[str, Form()],
+        packaging_supervisor_id: Annotated[str, Form()],
+        packaging_type: Annotated[str, Form()],
+        packaging_weight: Annotated[float, Form()],
+        total_packaged_weight: Annotated[float, Form()],
+        packaging_waste_type: Annotated[str, Form()],
+        packaging_waste_weight: Annotated[float, Form()],
+        packaging_images: Annotated[str, Form()],
+        yield_loss_percentage: Annotated[float, Form()],
+        received_date_time: Annotated[date, Form(...)],
+        packaging_date_time: Annotated[date, Form(...)],
+        sent_to_sales: Annotated[bool, Form()],
+        sent_to_sales_date_time: Annotated[date, Form(...)],
+        status: Annotated[Status, Form()]
+        ):
+    audits_info = {
+        "fulfillment_id": ID.unique(),
+        "batch_number": batch_number,
+        "farm_manager_id": farm_manager_id,
+        "farm_name": farm_name,
+        "plant_type": plant_type,
+        "total_heads": total_heads,
+        "total_weight": total_weight,
+        "harvest_received_images": harvest_received_images,
+        "packaging_supervisor_id": packaging_supervisor_id,
+        "packaging_type": packaging_type,
+        "packaging_weight": packaging_weight,
+        "total_packaged_weight": total_packaged_weight,
+        "packaging_waste_type": packaging_waste_type,
+        "packaging_waste_weight": packaging_waste_weight,
+        "packaging_images": packaging_images,
+        "yield_loss_percentage": yield_loss_percentage,
+        "received_date_time": received_date_time.isoformat(),
+        "packaging_date_time": packaging_date_time.isoformat(),
+        "sent_to_sales": sent_to_sales,
+        "sent_to_sales_date_time": sent_to_sales_date_time.isoformat(),
+        "status": status
+    }
+    print(audits_info)
+
+    fulfillment_create = db.create_document(
+        database_id= db_id,
+        collection_id=db_collection_id7,
+        document_id=ID.unique(),
+        data= audits_info
+    )
+
+    return {
+        "message": "User registered successfully",
+        "fulfillment_id": fulfillment_create["$id"]
+    }
+
+@collection7_router.get("/fulfillments")
+def get_all_fulfillment_infos():
+    try:
+        result = db.list_documents(
+            database_id=db_id,
+            collection_id=db_collection_id7
+        )
+
+        # Extract the list of users
+        audit_users = result["documents"]
+
+        return {
+            "count": len(audit_users),
+            "users": audit_users
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    
+@collection7_router.get("/fulfillment/{fulfillment_id}")
+def get_fulfillment_info(fulfillment_id:str):
+    try:
+        user= db.get_document(
+            database_id=db_id,
+            collection_id= db_collection_id7,
+            document_id= fulfillment_id
+        )
+        return user
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found!")
+    
+@collection7_router.put("/fulfillments/{fulfillment_id}")
+def update_fulfillment(fulfillment_id:str,
+    batch_number: Annotated[str, Form()],
+    farm_manager_id: Annotated[str, Form()],
+    farm_name: Annotated[str, Form()],
+    plant_type: Annotated[str, Form()],
+    total_heads: Annotated[float, Form(...)],
+    total_weight: Annotated[float, Form()],
+    harvest_received_images: Annotated[str, Form()],
+    packaging_supervisor_id: Annotated[str, Form()],
+    packaging_type: Annotated[str, Form()],
+    packaging_weight: Annotated[float, Form()],
+    total_packaged_weight: Annotated[float, Form()],
+    packaging_waste_type: Annotated[str, Form()],
+    packaging_waste_weight: Annotated[float, Form()],
+    packaging_images: Annotated[str, Form()],
+    yield_loss_percentage: Annotated[float, Form()],
+    received_date_time: Annotated[date, Form(...)],
+    packaging_date_time: Annotated[date, Form(...)],
+    sent_to_sales: Annotated[bool, Form()],
+    sent_to_sales_date_time: Annotated[date, Form(...)],
+    status: Annotated[Status, Form()]
+    ):
+    try:
+        # Perform update
+        updated_farm_info = db.update_document(
+            database_id=db_id,
+            collection_id=db_collection_id7,
+            document_id=fulfillment_id,
+            data={"batch_number": batch_number,
+                  "farm_manager_id": farm_manager_id,
+                  "farm_name": farm_name,
+                  "plant_type": plant_type,
+                  "total_heads": total_heads,
+                  "total_weight": total_weight,
+                  "harvest_received_images": harvest_received_images,
+                  "packaging_supervisor_id": packaging_supervisor_id,
+                  "packaging_type": packaging_type,
+                  "packaging_weight": packaging_weight,
+                  "total_packaged_weight": total_packaged_weight,
+                  "packaging_waste_type": packaging_waste_type,
+                  "packaging_waste_weight": packaging_waste_weight,
+                  "packaging_images": packaging_images,
+                  "yield_loss_percentage": yield_loss_percentage,
+                  "received_date_time": received_date_time.isoformat(),
+                  "packaging_date_time": packaging_date_time.isoformat(),
+                  "sent_to_sales": sent_to_sales,
+                  "sent_to_sales_date_time": sent_to_sales_date_time.isoformat(),
+                  "status": status
+            },
+            permissions=[]
+        )
+        return {"message": "Fulfillments info updated successfully", "user": updated_farm_info}
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Update failed: {e}")
+    
+@collection7_router.delete("/fulfillments/{fulfillment_id}")
+def delete_fulfillment(fulfillment_id:str):
+    try:
+        db.delete_document(
+            database_id=db_id,
+            collection_id=db_collection_id7, 
+            document_id=fulfillment_id)
+        return {"message": f"User with ID {fulfillment_id} deleted successfully"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
