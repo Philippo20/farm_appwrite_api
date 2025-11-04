@@ -1,11 +1,10 @@
-from fastapi import APIRouter, Form, File, UploadFile, HTTPException, status
+from fastapi import APIRouter, Form, UploadFile, HTTPException, status
 from typing import Annotated
 from enum import Enum
 from datetime import datetime, date, timezone
 from main import db_id, db_collection_id5, bucket_id, project_id, appwrite_endpoint
 from db import db
 from appwrite.id import ID
-from appwrite.query import Query
 from appwrite.input_file import InputFile
 from storage import st
 
@@ -157,7 +156,7 @@ def get_batch_info(batch_no:str):
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found!")
+            detail=str(e))
     
 @collection5_router.put("/batches/{batch_no}")
 async def update_batch(batch_id:str,
