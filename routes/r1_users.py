@@ -16,17 +16,17 @@ collection1_router = APIRouter(tags=["Users"])
 
 
 class Role(str, Enum):
-    ROLE_SUPERADMIN = "superadmin"
-    ROLE_FARM_MANAGER = "farm_manager"
-    ROLE_FARM_OWNER = "farm_owner"
-    ROLE_CARETAKER = "caretaker"
-    ROLE_TECHNICIANS = "technicians"
-    ROLE_FULFILLMENT = "fulfillment_manager"
-    ROLE_PACKAGING = "packaging_supervisor"
-    ROLE_QA = "quality_officer"
-    ROLE_SALES_MANAGER = "sales_manager"
-    ROLE_SALES_PERSON = "sales_person"
-    ROLE_ACCOUNTANT = "accountant"
+    SUPERADMIN = "superadmin"
+    FARM_MANAGER = "farm_manager"
+    FARM_OWNER = "farm_owner"
+    CARETAKER = "caretaker"
+    TECHNICIANS = "technicians"
+    FULFILLMENT = "fulfillment_manager"
+    PACKAGING = "packaging_supervisor"
+    QA = "quality_officer"
+    SALES_MANAGER = "sales_manager"
+    SALES_PERSON = "sales_person"
+    ACCOUNTANT = "accountant"
 
 class UserUpdateModel(BaseModel):
     name: str | None = None
