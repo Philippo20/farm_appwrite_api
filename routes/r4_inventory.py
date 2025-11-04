@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Form, HTTPException, status
 from typing import Annotated
 from enum import Enum
-from datetime import datetime, date
+from datetime import date
 from main import db_id, db_collection_id4
 from db import db
 from appwrite.id import ID
@@ -109,7 +109,7 @@ def get_inventory_info(item_id:str):
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found!")
+            detail=str(e))
     
 @collection4_router.put("/inventory/{item_id}")
 def update_inventory(item_id:str,
