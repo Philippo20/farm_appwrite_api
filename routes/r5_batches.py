@@ -5,7 +5,6 @@ from datetime import datetime, date, timezone
 from main import db_id, db_collection_id5, bucket_id, project_id, appwrite_endpoint
 from db import db
 from appwrite.id import ID
-from appwrite.query import Query
 from appwrite.input_file import InputFile
 from storage import st
 
@@ -32,13 +31,13 @@ class DeliveryStatus(str, Enum):
 
 @collection5_router.post("/batches/info")
 async def register_batch(
-        batch_no: Annotated[str, Form()],
-        farmID: Annotated[str, Form()],
-        farm_name: Annotated[str, Form()],
+        batch_no: Annotated[str, Form(...)],
+        farmID: Annotated[str, Form(...)],
+        farm_name: Annotated[str, Form(...)],
         plant_type_ID: Annotated[str, Form()],
-        plant_name: Annotated[str, Form()],
-        farm_manager_id: Annotated[str, Form()],
-        farm_manager_name: Annotated[str, Form()],
+        plant_name: Annotated[str, Form(...)],
+        farm_manager_id: Annotated[str, Form(...)],
+        farm_manager_name: Annotated[str, Form(...)],
         caretaker_id: Annotated[str, Form()],
         caretaker_name: Annotated[str, Form()],
         start_date: Annotated[date, Form(...)],
@@ -145,13 +144,13 @@ def get_all_batches_infos():
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     
-@collection5_router.get("/batches/{batch_no}")
-def get_batch_info(batch_no:str):
+@collection5_router.get("/batches/{batch_id}")
+def get_batch_info(batch_id:str):
     try:
         user= db.get_document(
             database_id=db_id,
             collection_id= db_collection_id5,
-            document_id= batch_no
+            document_id= batch_id
         )
         return user
     except Exception as e:
@@ -159,7 +158,7 @@ def get_batch_info(batch_no:str):
             status_code=status.HTTP_404_NOT_FOUND,
             detail="User not found!")
     
-@collection5_router.put("/batches/{batch_no}")
+@collection5_router.put("/batches/{batch_id}")
 async def update_batch(batch_id:str,
     batch_no: Annotated[str, Form()],
     farmID: Annotated[str, Form()],
@@ -264,7 +263,7 @@ async def update_batch(batch_id:str,
     except Exception as e:
         return {"error": str(e)}
 
-@collection5_router.delete("/batches/{batch_no}")
+@collection5_router.delete("/batches/{batch_id}")
 def delete_batch(batch_no:str):
     try:
         db.delete_document(

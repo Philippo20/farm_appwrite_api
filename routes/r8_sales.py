@@ -14,12 +14,16 @@ class Status(str, Enum):
     PAID= "Paid"
     CANCELLED= "Cancelled"
 
+class OfftakerStatus(str, Enum):
+    ACTIVE = "Active"
+    INACTIVE = "Inactive"
+
 @collection8_router.post("/sales/info")
 def register_sales(
         batch_number: Annotated[str, Form()],
         batch_id: Annotated[str, Form()],
-        off_taker_id: Annotated[str, Form()],
-        off_taker_name: Annotated[str, Form()],
+        buyer_id: Annotated[str, Form()],
+        buyer_name: Annotated[str, Form()],
         delivered_by: Annotated[str, Form(...)],
         delivered_at: Annotated[datetime, Form()],
         quantity_delivered: Annotated[float, Form()],
@@ -37,8 +41,8 @@ def register_sales(
         "sale_id": ID.unique(),
         "batch_id": batch_id,
         "batch_number": batch_number,
-        "off_taker_id": off_taker_id,
-        "off_taker_name": off_taker_name,
+        "buyer_id": buyer_id,
+        "buyer_name": buyer_name,
         "delivered_by": delivered_by,
         "delivered_at": delivered_at.isoformat(),
         "quantity_delivered": quantity_delivered,
@@ -103,8 +107,8 @@ def get_sale_info(sale_id:str):
 def update_sale(sale_id:str,
     batch_number: Annotated[str, Form()],
     batch_id: Annotated[str, Form()],
-    off_taker_id: Annotated[str, Form()],
-    off_taker_name: Annotated[str, Form()],
+    buyer_id: Annotated[str, Form()],
+    buyer_name: Annotated[str, Form()],
     delivered_by: Annotated[str, Form(...)],
     delivered_at: Annotated[datetime, Form()],
     quantity_delivered: Annotated[float, Form()],
@@ -126,8 +130,8 @@ def update_sale(sale_id:str,
             document_id=sale_id,
             data={"batch_id": batch_id,
                   "batch_number": batch_number,
-                  "off_taker_id": off_taker_id,
-                  "off_taker_name": off_taker_name,
+                  "buyer_id": buyer_id,
+                  "buyer_name": buyer_name,
                   "delivered_by": delivered_by,
                   "delivered_at": delivered_at.isoformat(),
                   "quantity_delivered": quantity_delivered,
