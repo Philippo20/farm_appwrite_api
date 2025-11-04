@@ -116,7 +116,7 @@ def create_magic_url_token():
 # login 
 @auth_router.post("/account/login")
 def login_user(
-    email: Annotated[EmailStr , Form(...)],
+    email: Annotated[EmailStr, Form(...)],
     password: Annotated[str, Form(...)]
 ):
     try:
