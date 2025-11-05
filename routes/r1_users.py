@@ -39,14 +39,11 @@ class UserUpdateModel(BaseModel):
 @collection1_router.post("/users/signup")
 def register_user(
         name: Annotated[str, Form()],
-        # farmID: Annotated[str, Form()],
         email: Annotated[EmailStr, Form()],
         password: Annotated[str, Form()],
         address: Annotated[str, Form()],
         role: Annotated[Role, Form()],
-        phone: Annotated[str, Form()],
-        department: Annotated[str, Form()]
-
+        phone: Annotated[str, Form()]
         ):
 
     existing = db.list_documents(
@@ -64,8 +61,7 @@ def register_user(
         "password": password,
         "role": role,
         "address": address,
-        "phone": phone,
-        "department": department
+        "phone": phone
     }
 
     registered_user = db.create_document(
@@ -121,8 +117,7 @@ def update_user(
     password: Annotated[str, Form()],
     address: Annotated[str, Form()],
     role: Annotated[Role, Form()],
-    phone: Annotated[Role, Form()],
-    department: Annotated[Role, Form()]):
+    phone: Annotated[Role, Form()]):
     try:
         # Perform update
         updated_user = db.update_document(
@@ -134,8 +129,7 @@ def update_user(
                   "password": password,
                   "role": role,
                   "address": address,
-                  "phone": phone,
-                  "department": department
+                  "phone": phone
             },
             permissions=[]
         )
