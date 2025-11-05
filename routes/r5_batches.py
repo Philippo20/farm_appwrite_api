@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Form, UploadFile, HTTPException, status
+from fastapi import APIRouter, Form, File, UploadFile, HTTPException, status
 from typing import Annotated
 from enum import Enum
 from datetime import datetime, date, timezone
@@ -46,11 +46,11 @@ async def register_batch(
         total_harvested: Annotated[int, Form()],
         total_transplanted: Annotated[int, Form()],
         total_weight_kg: Annotated[float, Form()],
-        harvest_images: Annotated[UploadFile, Form()],
+        harvest_images: Annotated[UploadFile, File()],
         production_status: Annotated[ProductionStatus, Form()],
         technical_issues: Annotated[str, Form()],
         inputs_supplied: Annotated[str, Form()],
-        funds_requested: Annotated[str, Form()],
+        funds_requested: Annotated[bool, Form()],
         financial_status: Annotated[FinancialStatus, Form()],
         fund_request_id: Annotated[str, Form()],
         delivery_status: Annotated[DeliveryStatus, Form()],
@@ -101,7 +101,7 @@ async def register_batch(
                 "total_harvested": total_harvested,   
                 "total_transplanted": total_transplanted,   
                 "total_weight_kg": total_weight_kg,   
-                "harvest_images": harvest_images,   
+                "harvest_images": view_url,
                 "production_status": production_status,   
                 "technical_issues": technical_issues,   
                 "inputs_supplied": inputs_supplied,   
@@ -117,10 +117,10 @@ async def register_batch(
         )
         return {
             "message": "Batches information created successfully",
-            "file_id": file_id,
-            "view_url": view_url,
-            "download_url": download_url,
-            "batch_id": batches_info["$id"]
+             "batch_id": batches_info["$id"],
+             "harvest_image_id": file_id,
+             "harvest_image_url": view_url,
+             "download_url": download_url
         }
     except Exception as e:
         return {"error": str(e)}
@@ -175,11 +175,11 @@ async def update_batch(batch_id:str,
     total_harvested: Annotated[int, Form()],
     total_transplanted: Annotated[int, Form()],
     total_weight_kg: Annotated[float, Form()],
-    harvest_images: Annotated[UploadFile, Form()],
+    harvest_images: Annotated[UploadFile, File()],
     production_status: Annotated[ProductionStatus, Form()],
     technical_issues: Annotated[str, Form()],
     inputs_supplied: Annotated[str, Form()],
-    funds_requested: Annotated[str, Form()],
+    funds_requested: Annotated[bool, Form()],
     financial_status: Annotated[FinancialStatus, Form()],
     fund_request_id: Annotated[str, Form()],
     delivery_status: Annotated[DeliveryStatus, Form()],
@@ -223,7 +223,7 @@ async def update_batch(batch_id:str,
                   "total_harvested": total_harvested,   
                   "total_transplanted": total_transplanted,   
                   "total_weight_kg": total_weight_kg,   
-                  "harvest_images": harvest_images,   
+                  "harvest_images": view_url,
                   "production_status": production_status,   
                   "technical_issues": technical_issues,   
                   "inputs_supplied": inputs_supplied,   
@@ -254,10 +254,11 @@ async def update_batch(batch_id:str,
 
         return {
             "message": "Crop info updated successfully",
-            "document_id": updated_doc["$id"],
-            "updated_batches": update_data,
-            "view_url": view_url,
-            "download_url": download_url,
+            "batch_id": updated_doc["$id"],
+            "updated_data": update_data,
+            "harvest_image_id": file_id,
+            "harvest_image_url": view_url,
+            "download_url": download_url
         }
 
     except Exception as e:
