@@ -2,7 +2,7 @@ from fastapi import APIRouter, Form, HTTPException, status
 from typing import Annotated
 from enum import Enum
 from datetime import datetime, date
-from main import db_id, db_collection_id8
+from main import db_id, db_collection_id10
 from db import db
 from appwrite.id import ID
 from appwrite.query import Query
@@ -63,7 +63,7 @@ def register_wallet(
 
     fulfillment_create = db.create_document(
         database_id= db_id,
-        collection_id=db_collection_id8,
+        collection_id=db_collection_id10,
         document_id=ID.unique(),
         data= sales_info
     )
@@ -78,7 +78,7 @@ def get_all_wallet_infos():
     try:
         result = db.list_documents(
             database_id=db_id,
-            collection_id=db_collection_id8
+            collection_id=db_collection_id10
         )
 
         # Extract the list of users
@@ -97,7 +97,7 @@ def get_wallet_info(wallet_id:str):
     try:
         wallet= db.get_document(
             database_id=db_id,
-            collection_id= db_collection_id8,
+            collection_id= db_collection_id10,
             document_id= wallet_id
         )
         return wallet
@@ -125,7 +125,7 @@ def update_wallet(wallet_id:str,
         # Perform update
         updated_wallet_info = db.update_document(
             database_id=db_id,
-            collection_id=db_collection_id8,
+            collection_id=db_collection_id10,
             document_id=wallet_id,
             data={"user_id": wallet_id,
                   "user_name": user_name,
@@ -153,8 +153,10 @@ def delete_wallet(wallet_id:str):
     try:
         db.delete_document(
             database_id=db_id,
-            collection_id=db_collection_id8, 
+            collection_id=db_collection_id10, 
             document_id=wallet_id)
         return {"message": f"User with ID {wallet_id} deleted successfully"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+    
+    
