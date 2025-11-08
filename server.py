@@ -18,11 +18,23 @@ from routes.r15_grow_stages import collection15_router
 from routes.r16_crops import collection16_router
 from storage import storage_router
 from user_auth import auth_router
+from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI(
     title="Farm Estates Ltd API",
     description="API built using appwrite's db",
     docs_url="/"
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:8080",
+        "https://oyster-app-moqn5.ondigitalocean.app"
+    ],
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
+    allow_headers=["Content-Type", "Authorization", "Cookie"],
 )
 
 app.include_router(collection1_router)
