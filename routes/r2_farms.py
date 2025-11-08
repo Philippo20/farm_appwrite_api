@@ -26,7 +26,7 @@ def register_farm(
         plant_type: Annotated[str, Form()],
         plant_variety: Annotated[str, Form()],
         status: Annotated[Status, Form()],
-        tierType: Annotated[TierType, Form()],
+        tier_type: Annotated[TierType, Form()],
         created_at: Annotated[date, Form(...)],
         ):
     
@@ -46,13 +46,13 @@ def register_farm(
 
     farms_info = {
         "name": name,
-        "farmID": ID.unique(),
+        # "farm_id": ID.unique(),
         "location": location,
         "ownerID": ID.unique(),
         "caretakerID": ID.unique(),
         "plant_type": plant_type,
         "plant_variety": plant_variety,
-        "tierType": tierType,
+        "tier_type": tier_type,
         "status": status,
         "created_at": created_at.isoformat()
     }

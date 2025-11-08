@@ -11,16 +11,16 @@ from appwrite.query import Query
 collection11_router = APIRouter(tags=["Sensors"])
 
 class SensorType(str, Enum):
-    TEMPERATURE = "Temperature"
-    HUMIDITY = "Humidity"
-    CO2 = "CO2"
-    LIGHT = "Light"
-    PH = "pH"
-    EC = "ec"
+    TEMPERATURE = "temperature"
+    HUMIDITY = "humidity"
+    CO2 = "Carbon Dioxide"
+    LIGHT = "light"
+    PH_LEVEL = "pH Level"
+    EC_LEVEL = "EC Level"
     WATER_LEVEL = "Water level"
-    ELECTRICITY_CURRENT = "Electricity_current"
-    ELECTRICITY_VOLTAGE = "Electricity_voltage"
-    ELECTRICITY_WATTAGE = "Electricity_wattage"
+    ELECTRICITY_CURRENT = "electricity_current"
+    ELECTRICITY_VOLTAGE = "electricity_voltage"
+    ELECTRICITY_WATTAGE = "electricity_wattage"
 
 class Status(str, Enum):
     ACTIVE = "Active"

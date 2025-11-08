@@ -105,11 +105,10 @@ result = db.create_string_attribute(
     required= True
 )
 
-result = db.create_string_attribute(
+result = db.create_float_attribute(
     database_id= db_id,
     collection_id= db_collection_id7,
     key="packaging_waste_weight",
-    size= 225,
     required= False
 )
 

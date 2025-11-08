@@ -1,6 +1,1 @@
 "__pycache__/" 
-*.py[cod]
-*.pyo
-*.pyd
-.venv/
-env/
