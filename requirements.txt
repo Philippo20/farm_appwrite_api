@@ -4,3 +4,4 @@ python-multipart
 python-dotenv
 pyjwt
 bcrypt
+flask-cors==4.0.0
