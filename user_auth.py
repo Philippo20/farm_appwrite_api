@@ -41,8 +41,7 @@ EMAIL_SECURITY = os.getenv("EMAIL_SECURITY")
 def signup_user(
     name: Annotated[str, Form()],
     email: Annotated[EmailStr, Form()],
-    password: Annotated[str, Form()],
-    confirm_password: Annotated[str, Form()]
+    password: Annotated[str, Form()]
 
 ):
     try:
@@ -50,12 +49,19 @@ def signup_user(
             user_id=ID.unique(),
             email=email,
             password= password,
-            name=name,
-            confirm_password= confirm_password
+            name=name
         )
         return {"message": "User created successfully", "user_id": result["$id"]}
     except Exception as e:
         return {"error": str(e)}
+
+@auth_router.post("/account/verification")
+def verify_user():
+    verification = account.create_verification(
+        url="https://oyster-app-moqn5.ondigitalocean.app/"  # Redirect URL after verification
+    )
+    print(verification)
+    return verification
 
 # magic url token
 @auth_router.post("/account/tokens/magic-url")
@@ -65,7 +71,7 @@ def create_magic_url_token(user_id:Annotated[str, Form(...)],
         result = account.create_magic_url_token(
             user_id = user_id,
             email = email,
-            url = 'https://oyster-app-moqn5.ondigitalocean.app/', # optional
+            # url = 'https://oyster-app-moqn5.ondigitalocean.app/', # optional
             phrase = False # optional
         )
         return {"message": f"Magic link sent to {email}", "user_id": result["$id"]}
@@ -107,7 +113,7 @@ def create_user_with_bcrypt(
 # email token
 @auth_router.post("/account/tokens/email")
 def create_email_token(
-    user_id: str,
+    user_id: Annotated[str , Form(...)],
     email: Annotated[EmailStr , Form(...)]):
     try:
         result = account.create_email_token(
@@ -226,11 +232,12 @@ def update_email(
     
 # update name 
 @auth_router.put("/account/name")
-def update_name(
+def update_name(user_id:str,
     name: Annotated[str, Form(...)]
 ):
     try:
-        result = account.update_name(name= name)
+        result = account.update_name(user_id=user_id,
+                                     name= name)
         return {"message": "name updated successfully!", "user_id": result["$id"]}
     except Exception as e:
         return {"error": str(e)}
@@ -252,9 +259,11 @@ def update_password(
 
 # update phone 
 @auth_router.put("/account/phone")
-def update_phone (phone: Annotated[str, Form(...)]):
+def update_phone (phone: Annotated[str, Form(...)],
+                  password: Annotated[str, Form(...)]):
     try:
-        result = account.update_phone(phone= phone)
+        result = account.update_phone(phone= phone,
+                                      password=password)
         return {"message": "phone number updated successfully!", "user_id": result["$id"]}
     except Exception as e:
         return {"error": str(e)}

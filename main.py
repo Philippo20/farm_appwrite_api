@@ -29,8 +29,8 @@ db_collection_id16 = os.getenv("APPWRITE_COLLECTION_ID16")
 
 client = Client()
 
-client.set_endpoint(appwrite_endpoint)
-client.set_project(project_id)
-client.set_key(api_key)
+client.set_endpoint(os.getenv("APPWRITE_ENDPOINT"))
+client.set_project(os.getenv("APPWRITE_PROJECT_ID"))
+client.set_key(os.getenv("APPWRITE_API_KEY"))
 
 client.set_self_signed(True)
