@@ -28,7 +28,7 @@ class Status(str, Enum):
     FAULTY= "Faulty"
     MAINTENANCE= "Maintenance"
 
-@collection11_router.put("/sensors/info")
+@collection11_router.post("/sensors/info")
 def register_sensors_info(
         farmID: Annotated[str, Form()],
         farm_name: Annotated[str, Form()],
@@ -42,9 +42,7 @@ def register_sensors_info(
         alerts_enabled: Annotated[bool, Form()],
         maintenance_frequency: Annotated[str, Form()],
         timestamp: Annotated[datetime, Form(...)],
-        last_maintenance_date: Annotated[date, Form(...)],
-        created_at: Annotated[date, Form(...)],
-        updated_at: Annotated[datetime, Form(...)]
+        last_maintenance_date: Annotated[date, Form(...)]
         ):
     
     # Ensure an todos with farmID does not exist
@@ -62,10 +60,8 @@ def register_sensors_info(
     
 
     timestamp = datetime.now(timezone.utc).isoformat()
-    updated_at = datetime.now(timezone.utc).isoformat()
 
     sensors_info = {
-        "sensor_id": ID.unique(),
         "farmID": farmID,
         "farm_name": farm_name,
         "sensortype": sensortype,
@@ -78,9 +74,7 @@ def register_sensors_info(
         "alerts_enabled": alerts_enabled,
         "maintenance_frequency": maintenance_frequency,
         "timestamp": timestamp,
-        "last_maintenance_date": last_maintenance_date.isoformat(),
-        "created_at": created_at.isoformat(),
-        "updated_at": updated_at
+        "last_maintenance_date": last_maintenance_date.isoformat()
     }
 
     sensor_create = db.create_document(
@@ -94,6 +88,20 @@ def register_sensors_info(
         "message": "Sensor information registered successfully",
         "sensor_info_id": sensor_create["$id"]
     }
+
+@collection11_router.patch("/sensors/{sensors_id}")
+def get_sensor_info(sensors_id:str):
+    try:
+        user= db.get_document(
+            database_id=db_id,
+            collection_id= db_collection_id11,
+            document_id= sensors_id
+        )
+        return user
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found!")
 
 @collection11_router.get("/sensors")
 def get_all_sensors():
@@ -114,20 +122,6 @@ def get_all_sensors():
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     
-@collection11_router.get("/sensors/{sensors_id}")
-def get_sensor_info(sensors_id:str):
-    try:
-        user= db.get_document(
-            database_id=db_id,
-            collection_id= db_collection_id11,
-            document_id= sensors_id
-        )
-        return user
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found!")
-    
 @collection11_router.put("/sensors/{sensors_id}")
 def update_sensor(
     sensors_id:str,
@@ -143,14 +137,10 @@ def update_sensor(
     alerts_enabled: Annotated[bool, Form()],
     maintenance_frequency: Annotated[str, Form()],
     timestamp: Annotated[datetime, Form(...)],
-    last_maintenance_date: Annotated[date, Form(...)],
-    created_at: Annotated[date, Form(...)],
-    updated_at: Annotated[datetime, Form(...)]
+    last_maintenance_date: Annotated[date, Form(...)]
     ):
     
     timestamp = datetime.now(timezone.utc).isoformat()
-    updated_at = datetime.now(timezone.utc).isoformat()
-
 
     try:
         # Perform update
@@ -170,9 +160,7 @@ def update_sensor(
                   "alerts_enabled": alerts_enabled,
                   "maintenance_frequency": maintenance_frequency,
                   "timestamp": timestamp,
-                  "last_maintenance_date": last_maintenance_date.isoformat(),
-                  "created_at": created_at.isoformat(),
-                  "updated_at": updated_at
+                  "last_maintenance_date": last_maintenance_date.isoformat()
             },
             permissions=[]
         )

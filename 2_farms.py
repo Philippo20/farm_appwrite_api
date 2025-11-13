@@ -69,10 +69,3 @@ result = db.create_string_attribute(
     size=100,
     required= True
 )
-
-result = db.create_datetime_attribute(
-    database_id= db_id,
-    collection_id= db_collection_id2,
-    key="created_at",
-    required= True
-)

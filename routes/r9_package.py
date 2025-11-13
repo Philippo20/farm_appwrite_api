@@ -46,7 +46,7 @@ def register_package(
     }
     print(package_info)
 
-    fulfillment_create = db.create_document(
+    package_create = db.create_document(
         database_id= db_id,
         collection_id=db_collection_id9,
         document_id=ID.unique(),
@@ -55,7 +55,7 @@ def register_package(
 
     return {
         "message": "User registered successfully",
-        "fulfillment_id": fulfillment_create["$id"]
+        "package_id": package_create["$id"]
     }
 
 @collection9_router.get("/package")
