@@ -8,14 +8,6 @@ db = Databases(client)
 result = db.create_string_attribute(
     database_id= db_id,
     collection_id= db_collection_id11,
-    key="sensor_id",
-    size= 225,
-    required= True
-)
-
-result = db.create_string_attribute(
-    database_id= db_id,
-    collection_id= db_collection_id11,
     key="farmID",
     size= 225,
     required= True
@@ -110,19 +102,5 @@ result = db.create_datetime_attribute(
     database_id= db_id,
     collection_id= db_collection_id11,
     key="last_maintenance_date",#Last date sensor was serviced.
-    required= True
-)
-
-result = db.create_datetime_attribute(
-    database_id= db_id,
-    collection_id= db_collection_id11,
-    key="created_at",#When the sensor was registered in the system
-    required= True
-)
-
-result = db.create_datetime_attribute(
-    database_id= db_id,
-    collection_id= db_collection_id11,
-    key="updated_at",#Last update timestamp.
     required= True
 )

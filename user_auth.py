@@ -1,9 +1,11 @@
-from fastapi import APIRouter, Form
+from fastapi import APIRouter, Form, Header, HTTPException
 from appwrite.services.account import Account
+from appwrite.services.users import Users
+from appwrite.client import Client
 from appwrite.id import ID
 from main import client
 from pydantic import EmailStr
-from typing import Annotated
+from typing import Annotated, Optional
 from enum import Enum
 # from appwrite.input_enum.authenticator_type import AuthenticatorType
 import bcrypt
@@ -14,9 +16,19 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
-auth_router = APIRouter(tags=["Auth"])
+user_auth_router = APIRouter(tags=["Auth"])
 
+# Admin account for server operations (signup, create session)
 account = Account(client)
+
+# Helper function to create user-specific client with JWT
+def get_user_client(jwt_token: str) -> Client:
+    """Create Appwrite client with user JWT token"""
+    user_client = Client()
+    user_client.set_endpoint(os.getenv("APPWRITE_ENDPOINT"))
+    user_client.set_project(os.getenv("APPWRITE_PROJECT_ID"))
+    user_client.set_jwt(jwt_token)
+    return user_client
 
 class Role(str, Enum):
     SUPERADMIN = "superadmin"
@@ -37,7 +49,7 @@ EMAIL_HOST = os.getenv("EMAIL_HOST")
 EMAIL_SECURITY = os.getenv("EMAIL_SECURITY")
 
 # SIGNUP Endpoint
-@auth_router.post("/account/signup")
+@user_auth_router.post("/account/signup")
 def signup_user(
     name: Annotated[str, Form()],
     email: Annotated[EmailStr, Form()],
@@ -55,23 +67,15 @@ def signup_user(
     except Exception as e:
         return {"error": str(e)}
 
-@auth_router.post("/account/verification")
-def verify_user():
-    verification = account.create_verification(
-        url="https://oyster-app-moqn5.ondigitalocean.app/"  # Redirect URL after verification
-    )
-    print(verification)
-    return verification
-
 # magic url token
-@auth_router.post("/account/tokens/magic-url")
+@user_auth_router.post("/account/tokens/magic-url")
 def create_magic_url_token(user_id:Annotated[str, Form(...)],
                            email: Annotated[EmailStr, Form(...)]):
     try:
         result = account.create_magic_url_token(
             user_id = user_id,
             email = email,
-            # url = 'https://oyster-app-moqn5.ondigitalocean.app/', # optional
+            url = 'https://oyster-app-moqn5.ondigitalocean.app/', # optional
             phrase = False # optional
         )
         return {"message": f"Magic link sent to {email}", "user_id": result["$id"]}
@@ -79,7 +83,7 @@ def create_magic_url_token(user_id:Annotated[str, Form(...)],
         return {"error": str(e)}
 
 # create session
-@auth_router.post("/account/sessions/token")
+@user_auth_router.post("/account/sessions/token")
 def create_session(
     user_id:str,
     secret:str):
@@ -94,7 +98,7 @@ def create_session(
 
 
 # SIGNIP WITH BCRYPT
-@auth_router.post("/users/bcrypt")
+@user_auth_router.post("/users/bcrypt")
 def create_user_with_bcrypt(
     password: Annotated[str, Form()]
     ):
@@ -111,9 +115,9 @@ def create_user_with_bcrypt(
         return {"error": str(e)}
 
 # email token
-@auth_router.post("/account/tokens/email")
+@user_auth_router.post("/account/tokens/email")
 def create_email_token(
-    user_id: Annotated[str , Form(...)],
+    user_id: str,
     email: Annotated[EmailStr , Form(...)]):
     try:
         result = account.create_email_token(
@@ -126,17 +130,33 @@ def create_email_token(
         return {"error": str(e)}
 
 # jwt
-@auth_router.post("/account/jwts")
-def create_jwt():
+@user_auth_router.post("/account/jwts")
+def create_jwt(authorization: Annotated[Optional[str], Header()] = None):
+    """
+    Create JWT token from existing session
+    Can use either session cookie or Authorization header
+    """
     try:
-        result = account.create_jwt()
-        return {"message": "User's token created successfully", "user_id": result["$id"]}
+        if authorization:
+            # If JWT already exists, create a new one using the existing one
+            jwt_token = authorization.replace("Bearer ", "")
+            user_client = get_user_client(jwt_token)
+            user_account = Account(user_client)
+            result = user_account.create_jwt()
+        else:
+            # Use session cookie
+            result = account.create_jwt()
+        
+        return {
+            "jwt": result.get("jwt"),
+            "message": "JWT created successfully"
+        }
     except Exception as e:
-        return {"error": str(e)}
+        raise HTTPException(status_code=401, detail=f"JWT creation failed: {str(e)}")
 
     
 # create phone token
-@auth_router.post("/account/tokens/phone")
+@user_auth_router.post("/account/tokens/phone")
 def create_phone_token(
     user_id:str,
     phone:str):
@@ -147,7 +167,7 @@ def create_phone_token(
     return result
 
 # email verification
-@auth_router.post("/auth/verify")
+@user_auth_router.post("/auth/verify")
 def send_verification_email():
     try:
         verification = account.create_verification(url="https://oyster-app-moqn5.ondigitalocean.app/")
@@ -156,55 +176,128 @@ def send_verification_email():
         return {"error": str(e)}
 
 # login 
-@auth_router.post("/account/login")
+@user_auth_router.post("/account/login")
 def login_user(
     email: Annotated[EmailStr, Form(...)],
     password: Annotated[str, Form(...)]
 ):
+    """
+    Login user and return JWT token
+    Returns session details with JWT for authenticated requests
+    """
     try:
+        # Create email/password session
         session = account.create_email_password_session(
             email=email,
             password=password
         )
-        return {"message": "Login successful", "session_id": session["$id"]}
+        
+        # Create JWT token from the session
+        jwt_result = account.create_jwt()
+        
+        return {
+            "message": "Login successful",
+            "session_id": session["$id"],
+            "jwt": jwt_result.get("jwt"),  # Return JWT token
+            # "secret": jwt_result.get("secret")  # Secret for session management
+        }
     except Exception as e:
-        return {"error": str(e)}
+        raise HTTPException(status_code=401, detail=f"Login failed: {str(e)}")
 
 # get account user 
-@auth_router.get("/account")
-def get_account_user():
-    result = account.get()
-    return result
+@user_auth_router.get("/account")
+def get_account_user(authorization: Annotated[str, Header()]):
+    """
+    Get current user account details
+    Requires: Authorization header with Bearer token (JWT from login)
+    """
+    try:
+        # Extract JWT from "Bearer <token>"
+        if not authorization.startswith("Bearer "):
+            raise HTTPException(status_code=401, detail="Invalid authorization header format")
+        
+        jwt_token = authorization.replace("Bearer ", "")
+        
+        # Create user-specific client with JWT
+        user_client = get_user_client(jwt_token)
+        user_account = Account(user_client)
+        
+        # Get account with user permissions
+        result = user_account.get()
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=401, detail=f"Authentication failed: {str(e)}")
 
 # get account preferences
-@auth_router.get("/account/prefs")
-def get_account_prefs():
-    result = account.get_prefs()
-    return result
+@user_auth_router.get("/account/prefs")
+def get_account_prefs(authorization: Annotated[str, Header()]):
+    """Get user preferences - requires JWT"""
+    try:
+        if not authorization.startswith("Bearer "):
+            raise HTTPException(status_code=401, detail="Invalid authorization header")
+        
+        jwt_token = authorization.replace("Bearer ", "")
+        user_client = get_user_client(jwt_token)
+        user_account = Account(user_client)
+        
+        result = user_account.get_prefs()
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=401, detail=f"Failed to get preferences: {str(e)}")
 
 # get session
-@auth_router.get("/account/sessions/{sessionId}")
-def get_session(session_id:str):
-    result = account.get_session(
-    session_id = session_id
-)
+@user_auth_router.get("/account/sessions/{sessionId}")
+def get_session(session_id: str, authorization: Annotated[str, Header()]):
+    """Get specific session - requires JWT"""
+    try:
+        if not authorization.startswith("Bearer "):
+            raise HTTPException(status_code=401, detail="Invalid authorization header")
+        
+        jwt_token = authorization.replace("Bearer ", "")
+        user_client = get_user_client(jwt_token)
+        user_account = Account(user_client)
+        
+        result = user_account.get_session(session_id=session_id)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=401, detail=f"Failed to get session: {str(e)}")
 
 # list sessions
-@auth_router.get("/account/sessions")
-def list_session():
-    result = account.list_sessions()
-    return result
+@user_auth_router.get("/account/sessions")
+def list_session(authorization: Annotated[str, Header()]):
+    """List all user sessions - requires JWT"""
+    try:
+        if not authorization.startswith("Bearer "):
+            raise HTTPException(status_code=401, detail="Invalid authorization header")
+        
+        jwt_token = authorization.replace("Bearer ", "")
+        user_client = get_user_client(jwt_token)
+        user_account = Account(user_client)
+        
+        result = user_account.list_sessions()
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=401, detail=f"Failed to list sessions: {str(e)}")
 
 # list logs 
-@auth_router.get("/account/logs")
-def list_logs():
-    result = account.list_logs(
-        queries=[]
-    )
-    return{"message": f"Logs list are; {result}"}
+@user_auth_router.get("/account/logs")
+def list_logs(authorization: Annotated[str, Header()]):
+    """List user activity logs - requires JWT"""
+    try:
+        if not authorization.startswith("Bearer "):
+            raise HTTPException(status_code=401, detail="Invalid authorization header")
+        
+        jwt_token = authorization.replace("Bearer ", "")
+        user_client = get_user_client(jwt_token)
+        user_account = Account(user_client)
+        
+        result = user_account.list_logs(queries=[])
+        return {"message": f"Logs list retrieved", "logs": result}
+    except Exception as e:
+        raise HTTPException(status_code=401, detail=f"Failed to list logs: {str(e)}")
 
 # update magic URL session
-@auth_router.put("/account/sessions/magic-url")
+@user_auth_router.put("/account/sessions/magic-url")
 def update_magic_URL_session(user_id:Annotated[str, Form(...)],
                            email: Annotated[EmailStr, Form(...)]):
     try:
@@ -217,83 +310,142 @@ def update_magic_URL_session(user_id:Annotated[str, Form(...)],
         return {"error": str(e)}
 
 # update email 
-@auth_router.put("/account/email")
+@user_auth_router.patch("/account/email")
 def update_email(
-    email: Annotated[EmailStr , Form(...)],
-    password: Annotated[str, Form()]
+    email: Annotated[EmailStr, Form(...)],
+    password: Annotated[str, Form(...)],
+    authorization: Annotated[str, Header()]
 ):
+    """Update user email - requires JWT"""
     try:
-        result = account.update_email(
-            email = email,
-            password=password)
-        return {"message": "email updated successfully!", "user_id": result["$id"]}
+        if not authorization.startswith("Bearer "):
+            raise HTTPException(status_code=401, detail="Invalid authorization header")
+        
+        jwt_token = authorization.replace("Bearer ", "")
+        user_client = get_user_client(jwt_token)
+        user_account = Account(user_client)
+        
+        result = user_account.update_email(email=email, password=password)
+        return {"message": "Email updated successfully!", "user_id": result["$id"]}
     except Exception as e:
-        return {"error": str(e)}
+        raise HTTPException(status_code=400, detail=f"Failed to update email: {str(e)}")
     
 # update name 
-@auth_router.put("/account/name")
-def update_name(user_id:str,
-    name: Annotated[str, Form(...)]
+@user_auth_router.patch("/account/name")
+def update_name(
+    name: Annotated[str, Form(...)],
+    authorization: Annotated[str, Header()]
 ):
+    """Update user name - requires JWT"""
     try:
-        result = account.update_name(user_id=user_id,
-                                     name= name)
-        return {"message": "name updated successfully!", "user_id": result["$id"]}
+        if not authorization.startswith("Bearer "):
+            raise HTTPException(status_code=401, detail="Invalid authorization header")
+        
+        jwt_token = authorization.replace("Bearer ", "")
+        user_client = get_user_client(jwt_token)
+        user_account = Account(user_client)
+        
+        result = user_account.update_name(name=name)
+        return {"message": "Name updated successfully!", "user_id": result["$id"]}
     except Exception as e:
-        return {"error": str(e)}
+        raise HTTPException(status_code=400, detail=f"Failed to update name: {str(e)}")
 
 
 # update password 
-@auth_router.put("/account/password")
+@user_auth_router.patch("/account/password")
 def update_password(
     password: Annotated[str, Form(...)],
-    old_password:Annotated[str, Form(...)]
+    old_password: Annotated[str, Form(...)],
+    authorization: Annotated[str, Header()]
 ):
+    """Update user password - requires JWT"""
     try:
-        result = account.update_password(password = password,
-                                         old_password= old_password)
-        return {"message": "name updated successfully!", "user_id": result["$id"]}
+        if not authorization.startswith("Bearer "):
+            raise HTTPException(status_code=401, detail="Invalid authorization header")
+        
+        jwt_token = authorization.replace("Bearer ", "")
+        user_client = get_user_client(jwt_token)
+        user_account = Account(user_client)
+        
+        result = user_account.update_password(password=password, old_password=old_password)
+        return {"message": "Password updated successfully!", "user_id": result["$id"]}
     except Exception as e:
-        return {"error": str(e)}
+        raise HTTPException(status_code=400, detail=f"Failed to update password: {str(e)}")
 
 
 # update phone 
-@auth_router.put("/account/phone")
-def update_phone (phone: Annotated[str, Form(...)],
-                  password: Annotated[str, Form(...)]):
+@user_auth_router.patch("/account/phone")
+def update_phone(
+    phone: Annotated[str, Form(...)],
+    password: Annotated[str, Form(...)],
+    authorization: Annotated[str, Header()]
+):
+    """Update user phone - requires JWT"""
     try:
-        result = account.update_phone(phone= phone,
-                                      password=password)
-        return {"message": "phone number updated successfully!", "user_id": result["$id"]}
+        if not authorization.startswith("Bearer "):
+            raise HTTPException(status_code=401, detail="Invalid authorization header")
+        
+        jwt_token = authorization.replace("Bearer ", "")
+        user_client = get_user_client(jwt_token)
+        user_account = Account(user_client)
+        
+        result = user_account.update_phone(phone=phone, password=password)
+        return {"message": "Phone number updated successfully!", "user_id": result["$id"]}
     except Exception as e:
-        return {"error": str(e)}
+        raise HTTPException(status_code=400, detail=f"Failed to update phone: {str(e)}")
 
-@auth_router.put("/account/prefs")
-def update_prefs():
+@user_auth_router.patch("/account/prefs")
+def update_prefs(
+    prefs: dict,
+    authorization: Annotated[str, Header()]
+):
+    """Update user preferences - requires JWT"""
     try:
-        result = account.update_prefs(
-            prefs={
-                "language": "en",
-                "timezone": "UTC",
-                "darkTheme": True
-            }
-        )
-        return {"message": "User id{user_id} has been deleted successfully!"}
+        if not authorization.startswith("Bearer "):
+            raise HTTPException(status_code=401, detail="Invalid authorization header")
+        
+        jwt_token = authorization.replace("Bearer ", "")
+        user_client = get_user_client(jwt_token)
+        user_account = Account(user_client)
+        
+        result = user_account.update_prefs(prefs=prefs)
+        return {"message": "Preferences updated successfully!", "prefs": result}
     except Exception as e:
-        return {"error": str(e)}
+        raise HTTPException(status_code=400, detail=f"Failed to update preferences: {str(e)}")
 
 # delete account user 
-@auth_router.delete("/account/identities/{identityId}")
-def delete_account(identityId:str):
+@user_auth_router.delete("/account/identities/{identityId}")
+def delete_account(
+    identityId: str,
+    authorization: Annotated[str, Header()]
+):
+    """Delete user identity - requires JWT"""
     try:
-        result = account.delete_identity(
-            identity_id=identityId
-        )
-        return {"message": f"User id{identityId} has been deleted successfully!"}
+        if not authorization.startswith("Bearer "):
+            raise HTTPException(status_code=401, detail="Invalid authorization header")
+        
+        jwt_token = authorization.replace("Bearer ", "")
+        user_client = get_user_client(jwt_token)
+        user_account = Account(user_client)
+        
+        result = user_account.delete_identity(identity_id=identityId)
+        return {"message": f"Identity {identityId} has been deleted successfully!"}
     except Exception as e:
-        return {"error": str(e)}
+        raise HTTPException(status_code=400, detail=f"Failed to delete identity: {str(e)}")
 
 # delete session
-@auth_router.delete("/account/sessions")
-def  delete_session():
-    result = account.delete_sessions()
+@user_auth_router.delete("/account/sessions")
+def delete_session(authorization: Annotated[str, Header()]):
+    """Delete all user sessions (logout) - requires JWT"""
+    try:
+        if not authorization.startswith("Bearer "):
+            raise HTTPException(status_code=401, detail="Invalid authorization header")
+        
+        jwt_token = authorization.replace("Bearer ", "")
+        user_client = get_user_client(jwt_token)
+        user_account = Account(user_client)
+        
+        result = user_account.delete_sessions()
+        return {"message": "All sessions deleted successfully (logged out)"}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to delete sessions: {str(e)}")

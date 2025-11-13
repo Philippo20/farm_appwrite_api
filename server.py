@@ -17,7 +17,8 @@ from routes.r14_logs import collection14_router
 from routes.r15_grow_stages import collection15_router
 from routes.r16_crops import collection16_router
 from storage import storage_router
-from user_auth import auth_router
+# from user_auth import user_auth_router
+from auth import auth_router
 from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI(
@@ -55,3 +56,4 @@ app.include_router(collection15_router)
 app.include_router(collection16_router)
 app.include_router(storage_router)
 app.include_router(auth_router)
+# app.include_router(user_auth_router)

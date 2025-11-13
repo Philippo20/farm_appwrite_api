@@ -38,7 +38,6 @@ def register_sales(
         status: Annotated[Status, Form()]
         ):
     sales_info = {
-        "sale_id": ID.unique(),
         "batch_id": batch_id,
         "batch_number": batch_number,
         "buyer_id": buyer_id,

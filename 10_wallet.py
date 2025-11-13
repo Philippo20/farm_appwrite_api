@@ -8,14 +8,6 @@ db = Databases(client)
 result = db.create_string_attribute(
     database_id= db_id,
     collection_id= db_collection_id10,
-    key="wallet_id",
-    size= 225,
-    required= True
-)
-
-result = db.create_string_attribute(
-    database_id= db_id,
-    collection_id= db_collection_id10,
     key="user_id",
     size= 225,
     required= True

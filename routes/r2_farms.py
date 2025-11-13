@@ -26,8 +26,7 @@ def register_farm(
         plant_type: Annotated[str, Form()],
         plant_variety: Annotated[str, Form()],
         status: Annotated[Status, Form()],
-        tier_type: Annotated[TierType, Form()],
-        created_at: Annotated[date, Form(...)],
+        tier_type: Annotated[TierType, Form()]
         ):
     
     # Ensure farm info with name and caretakerID combined does not exist
@@ -53,8 +52,7 @@ def register_farm(
         "plant_type": plant_type,
         "plant_variety": plant_variety,
         "tier_type": tier_type,
-        "status": status,
-        "created_at": created_at.isoformat()
+        "status": status
     }
     print(farms_info)
 
@@ -113,8 +111,7 @@ def update_farm(
     plant_variety: Annotated[str, Form()],
     status: Annotated[Status, Form()],
     tierType: Annotated[TierType, Form()],
-    caretakerID: Annotated[str, Form()],
-    created_at: Annotated[date, Form(...)]):
+    caretakerID: Annotated[str, Form()]):
 
     try:
         # Perform update
@@ -129,8 +126,7 @@ def update_farm(
                   "plant_type": plant_type,
                   "plant_variety": plant_variety,
                   "tierType": tierType,
-                  "status": status,
-                  "created_at": created_at.isoformat(),
+                  "status": status
             },
             permissions=[]
         )
