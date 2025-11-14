@@ -75,7 +75,7 @@ def create_magic_url_token(user_id:Annotated[str, Form(...)],
         result = account.create_magic_url_token(
             user_id = user_id,
             email = email,
-            url = 'https://oyster-app-moqn5.ondigitalocean.app/', # optional
+            url = 'https://goldfish-app-pet66.ondigitalocean.app/', # optional
             phrase = False # optional
         )
         return {"message": f"Magic link sent to {email}", "user_id": result["$id"]}
@@ -128,32 +128,6 @@ def create_email_token(
         return {"message": "User's email token created successfully", "user_id": result["$id"]}
     except Exception as e:
         return {"error": str(e)}
-
-# jwt
-@user_auth_router.post("/account/jwts")
-def create_jwt(authorization: Annotated[Optional[str], Header()] = None):
-    """
-    Create JWT token from existing session
-    Can use either session cookie or Authorization header
-    """
-    try:
-        if authorization:
-            # If JWT already exists, create a new one using the existing one
-            jwt_token = authorization.replace("Bearer ", "")
-            user_client = get_user_client(jwt_token)
-            user_account = Account(user_client)
-            result = user_account.create_jwt()
-        else:
-            # Use session cookie
-            result = account.create_jwt()
-        
-        return {
-            "jwt": result.get("jwt"),
-            "message": "JWT created successfully"
-        }
-    except Exception as e:
-        raise HTTPException(status_code=401, detail=f"JWT creation failed: {str(e)}")
-
     
 # create phone token
 @user_auth_router.post("/account/tokens/phone")
@@ -199,7 +173,7 @@ def login_user(
             "message": "Login successful",
             "session_id": session["$id"],
             "jwt": jwt_result.get("jwt"),  # Return JWT token
-            # "secret": jwt_result.get("secret")  # Secret for session management
+            "secret": jwt_result.get("secret")  # Secret for session management
         }
     except Exception as e:
         raise HTTPException(status_code=401, detail=f"Login failed: {str(e)}")
