@@ -101,6 +101,54 @@ def signup_user(
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+
+# login 
+@auth_router.post("/account/login")
+def login_user(
+    email: Annotated[EmailStr, Form(...)],
+    password: Annotated[str, Form(...)]
+):
+    """
+    Login user and create JWT token
+    Validates credentials with Appwrite and generates custom JWT
+    """
+    try:
+        # Validate credentials by creating session
+        # This also gives us back user info
+        session = account.create_email_password_session(
+            email=email,
+            password=password
+        )
+        
+        # IMPORTANT: Create Appwrite JWT (not custom JWT)
+        # jwt_result = account.create_jwt()
+        
+        user_id = session["userId"]
+        print(f"DEBUG login: Session created for user {user_id}")
+        
+        # Create custom JWT with user info from session
+        jwt_secret = os.getenv("JWT_SECRET_KEY", "your-secret-key-change-in-production")
+        payload = {
+            "user_id": user_id,
+            "email": email,
+            "exp": datetime.datetime.utcnow() + datetime.timedelta(days=7),
+            "iat": datetime.datetime.utcnow()
+        }
+        jwt_token = jwt.encode(payload, jwt_secret, algorithm="HS256")
+        
+        print(f"DEBUG login: JWT created, length: {len(jwt_token)}")
+        
+        return {
+            "message": "Login successful",
+            "user": {"id": user_id, "email": email},
+            "session_id": session["$id"],
+            # "jwt": jwt_result.get("jwt"), #jwt_token 
+            # "secret": jwt_result.get("secret")  # Secret for session management
+        }
+    except Exception as e:
+        print(f"DEBUG login ERROR: {type(e).__name__}: {str(e)}")
+        raise HTTPException(status_code=401, detail=f"Login failed: {str(e)}")
+
 # magic url token
 @auth_router.post("/account/tokens/magic-url")
 def create_magic_url_token(user_id:Annotated[str, Form(...)],
@@ -150,57 +198,25 @@ def create_user_with_bcrypt(
 
 # email verification
 @auth_router.post("/auth/verify")
-def send_verification_email():
+def send_verification_email(authorization: str = Header(None)):
     try:
+        if not authorization:
+            return {"error": "Authorization header missing"}
+        
+        token = authorization.replace("Bearer ", "")
+
+        client = Client()
+        client.set_endpoint(os.getenv("APPWRITE_ENDPOINT"))
+        client.set_project(os.getenv("APPWRITE_PROJECT_ID"))
+        client.set_jwt(token)  # VERY IMPORTANT
+
+        account = Account(client)
         verification = account.create_verification(
             url="https://oyster-app-moqn5.ondigitalocean.app/")
         return {"message": "Verification email sent", "verification_id": verification["$id"]}
     except Exception as e:
         return {"error": str(e)}
 
-# login 
-@auth_router.post("/account/login")
-def login_user(
-    email: Annotated[EmailStr, Form(...)],
-    password: Annotated[str, Form(...)]
-):
-    """
-    Login user and create JWT token
-    Validates credentials with Appwrite and generates custom JWT
-    """
-    try:
-        # Validate credentials by creating session
-        # This also gives us back user info
-        session = account.create_email_password_session(
-            email=email,
-            password=password
-        )
-        
-        user_id = session["userId"]
-        print(f"DEBUG login: Session created for user {user_id}")
-        
-        # Create custom JWT with user info from session
-        jwt_secret = os.getenv("JWT_SECRET_KEY", "your-secret-key-change-in-production")
-        payload = {
-            "user_id": user_id,
-            "email": email,
-            "exp": datetime.datetime.utcnow() + datetime.timedelta(days=7),
-            "iat": datetime.datetime.utcnow()
-        }
-        jwt_token = jwt.encode(payload, jwt_secret, algorithm="HS256")
-        
-        print(f"DEBUG login: JWT created, length: {len(jwt_token)}")
-        
-        return {
-            "message": "Login successful",
-            "user": {"id": user_id, "email": email},
-            "session_id": session["$id"],
-            "jwt": jwt_token,
-            "secret": session.get("secret")  # Secret for session management
-        }
-    except Exception as e:
-        print(f"DEBUG login ERROR: {type(e).__name__}: {str(e)}")
-        raise HTTPException(status_code=401, detail=f"Login failed: {str(e)}")
 
 # get account user 
 @auth_router.get("/account")
