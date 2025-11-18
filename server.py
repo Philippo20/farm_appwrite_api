@@ -19,6 +19,7 @@ from routes.r16_crops import collection16_router
 from routes.r17_pricing import collection17_router
 from storage import storage_router
 from auth import auth_router
+from backups import backups_router
 from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI(
@@ -57,3 +58,4 @@ app.include_router(collection16_router)
 app.include_router(collection17_router)
 app.include_router(storage_router)
 app.include_router(auth_router)
+app.include_router(backups_router)
