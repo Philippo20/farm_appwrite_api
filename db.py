@@ -106,3 +106,9 @@ db = Databases(client)
 #     collection_id= ID.unique(),
 #     name= "Crops"
 # )
+
+# result = db.create_collection(
+#     database_id= db_id,
+#     collection_id= ID.unique(),
+#     name= "Pricing"
+# )

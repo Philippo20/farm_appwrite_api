@@ -11,7 +11,6 @@ collection8_router = APIRouter(tags=["Sales"])
 class Status(str, Enum):
     PENDING = "Pending"
     DELIVERED = "Delivered"
-    PAID= "Paid"
     CANCELLED= "Cancelled"
 
 class OfftakerStatus(str, Enum):
@@ -20,7 +19,6 @@ class OfftakerStatus(str, Enum):
 
 @collection8_router.post("/sales/info")
 def register_sales(
-        batch_number: Annotated[str, Form()],
         batch_id: Annotated[str, Form()],
         buyer_id: Annotated[str, Form()],
         buyer_name: Annotated[str, Form()],
@@ -34,12 +32,10 @@ def register_sales(
         receipt_number: Annotated[str, Form()],
         payment_date: Annotated[date, Form()],
         created_by: Annotated[str, Form()],
-        created_at: Annotated[date, Form()],
         status: Annotated[Status, Form()]
         ):
     sales_info = {
         "batch_id": batch_id,
-        "batch_number": batch_number,
         "buyer_id": buyer_id,
         "buyer_name": buyer_name,
         "delivered_by": delivered_by,
@@ -52,12 +48,11 @@ def register_sales(
         "receipt_number": receipt_number,
         "payment_date": payment_date.isoformat(),
         "created_by": created_by,
-        "created_at": created_at.isoformat(),
         "status": status
     }
     print(sales_info)
 
-    fulfillment_create = db.create_document(
+    sales_create = db.create_document(
         database_id= db_id,
         collection_id=db_collection_id8,
         document_id=ID.unique(),
@@ -66,7 +61,7 @@ def register_sales(
 
     return {
         "message": "User registered successfully",
-        "fulfillment_id": fulfillment_create["$id"]
+        "sales_id": sales_create["$id"]
     }
 
 @collection8_router.get("/sales")
@@ -104,7 +99,6 @@ def get_sale_info(sale_id:str):
     
 @collection8_router.put("/sales/{sale_id}")
 def update_sale(sale_id:str,
-    batch_number: Annotated[str, Form()],
     batch_id: Annotated[str, Form()],
     buyer_id: Annotated[str, Form()],
     buyer_name: Annotated[str, Form()],
@@ -118,7 +112,6 @@ def update_sale(sale_id:str,
     receipt_number: Annotated[str, Form()],
     payment_date: Annotated[date, Form()],
     created_by: Annotated[str, Form()],
-    created_at: Annotated[date, Form()],
     status: Annotated[Status, Form()]
     ):
     try:
@@ -128,7 +121,6 @@ def update_sale(sale_id:str,
             collection_id=db_collection_id8,
             document_id=sale_id,
             data={"batch_id": batch_id,
-                  "batch_number": batch_number,
                   "buyer_id": buyer_id,
                   "buyer_name": buyer_name,
                   "delivered_by": delivered_by,
@@ -141,12 +133,11 @@ def update_sale(sale_id:str,
                   "receipt_number": receipt_number,
                   "payment_date": payment_date.isoformat(),
                   "created_by": created_by,
-                  "created_at": created_at.isoformat(),
                   "status": status
             },
             permissions=[]
         )
-        return {"message": "Fulfillments info updated successfully", "user": updated_sales_info}
+        return {"message": "Sales info updated successfully", "user": updated_sales_info}
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Update failed: {e}")

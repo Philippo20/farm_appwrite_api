@@ -82,20 +82,6 @@ result = db.create_enum_attribute(
     required= True
 )
 
-result = db.create_datetime_attribute(
-    database_id= db_id,
-    collection_id= db_collection_id10,
-    key="created_at",
-    required= True
-)
-
-result = db.create_datetime_attribute(
-    database_id= db_id,
-    collection_id= db_collection_id10,
-    key="updated_at",
-    required= True
-)
-
 result = db.create_string_attribute(
     database_id= db_id,
     collection_id= db_collection_id10,
