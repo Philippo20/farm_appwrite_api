@@ -12,22 +12,28 @@ from storage import st
 
 collection3_router = APIRouter(tags=["Plant type"])
 
+class Status(str, Enum):
+    ACTIVE = "active"
+    INACTIVE = "inactive"
+
+class PackageTypes(str, Enum):
+    SMALL = "Small"
+    MEDIUM = "Medium"
+    LARGE = "Large"
+
 @collection3_router.post("/plant_type/info")
 async def register_plant_type(
         name: Annotated[str, Form()],
         farmID: Annotated[str, Form()],
-        days_to_maturity: Annotated[int, Form()],
+        months_to_maturity: Annotated[int, Form()],
         image_url: Annotated[UploadFile, File()],
         growth_conditions: Annotated[str, Form()],
         packaging_weights: Annotated[float, Form()],
-        package_types: Annotated[str, Form()],
+        package_types: Annotated[PackageTypes, Form()],
         price_per_package: Annotated[float, Form()],
-        created_by: Annotated[str, Form()],
-        created_at: Annotated[date, Form(...)],
-        updated_at: Annotated[datetime, Form(...)]
-        ):
-    updated_at = datetime.now(timezone.utc).isoformat()
-    
+        status: Annotated[Status, Form()],
+        created_by: Annotated[str, Form()]
+        ):    
     file_bytes = await image_url.read()
     
     try:
@@ -53,15 +59,14 @@ async def register_plant_type(
             data={
                 "name": name,
                 "farmID": farmID,
-                "days_to_maturity": days_to_maturity,
+                "months_to_maturity": months_to_maturity,
                 "image_url": image_url.filename,
                 "growth_conditions": growth_conditions,
                 "packaging_weights": packaging_weights,
                 "package_types": package_types,
                 "price_per_package": price_per_package,
-                "created_by": created_by,
-                "created_at": created_at.isoformat(),
-                "updated_at": updated_at
+                "status": status,
+                "created_by": created_by
                 }
         )
         return {
@@ -111,15 +116,14 @@ def get_plant_type_info(plant_type_id:str):
 async def update_plant_type(plant_type_id:str,
     name: Annotated[str, Form()],
     farmID: Annotated[str, Form()],
-    days_to_maturity: Annotated[int, Form()],
+    months_to_maturity: Annotated[int, Form()],
     image_url: Annotated[UploadFile, File()],
     growth_conditions: Annotated[str, Form()],
     packaging_weights: Annotated[float, Form()],
-    package_types: Annotated[str, Form()],
+    package_types: Annotated[PackageTypes, Form()],
     price_per_package: Annotated[float, Form()],
-    created_by: Annotated[str, Form()],
-    created_at: Annotated[date, Form(...)],
-    updated_at: Annotated[datetime, Form(...)]
+    status: Annotated[Status, Form()],
+    created_by: Annotated[str, Form()]
     ):
     updated_at = datetime.now(timezone.utc).isoformat()
 
@@ -141,15 +145,14 @@ async def update_plant_type(plant_type_id:str,
     # Only include fields that were actually provided
     form_fields = {"name": name,
                   "farmID": farmID,
-                  "days_to_maturity": days_to_maturity,
+                  "months_to_maturity": months_to_maturity,
                   "image_url": image_url,
                   "growth_conditions": growth_conditions,
                   "packaging_weights": packaging_weights,
                   "package_types": package_types,
                   "price_per_package": price_per_package,
-                  "created_by": created_by,
-                  "created_at": created_at.isoformat(),
-                  "updated_at": updated_at
+                  "status": status,
+                  "created_by": created_by
             }
             # permissions=[]
     # Add only non-None fields to the update payload

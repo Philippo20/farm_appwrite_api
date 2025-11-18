@@ -113,17 +113,10 @@ result = db.create_string_attribute(
     required= True
 )
 
-result = db.create_datetime_attribute(
-    database_id= db_id,
-    collection_id= db_collection_id8,
-    key="created_at",
-    required= True
-)
-
 result = db.create_enum_attribute(
     database_id= db_id,
     collection_id= db_collection_id8,
     key="status",
-    elements=["Pending", "Delivered", "Paid", "Cancelled"],
+    elements=["Pending", "Delivered", "Cancelled"],
     required= True
 )

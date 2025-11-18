@@ -25,7 +25,7 @@ result = db.create_string_attribute(
 result = db.create_integer_attribute(
     database_id= db_id,
     collection_id= db_collection_id3,
-    key="days_to_maturity",
+    key="months_to_maturity",
     required= True
 )
 
@@ -52,11 +52,11 @@ result = db.create_float_attribute(
     required= True
 )
 
-result = db.create_string_attribute(
+result = db.create_enum_attribute(
     database_id= db_id,
     collection_id= db_collection_id3,
     key="package_types",
-    size=225,
+    elements=["Small", "Medium", "Large"],
     required= True
 )
 
@@ -75,17 +75,10 @@ result = db.create_string_attribute(
     required= True
 )
 
-result = db.create_datetime_attribute(
+result = db.create_enum_attribute(
     database_id= db_id,
     collection_id= db_collection_id3,
-    key="created_at",#When the plant type was added.
+    key="status",
+    elements=["active", "inactive"],
     required= True
 )
-
-result = db.create_datetime_attribute(
-    database_id= db_id,
-    collection_id= db_collection_id3,
-    key="updated_at",#Last updated timestamp
-    required= True
-)
-

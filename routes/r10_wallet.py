@@ -41,8 +41,6 @@ async def register_wallet(
         transaction_image: Annotated[UploadFile, File()],
         transaction_id: Annotated[str, Form()],
         status: Annotated[Status, Form()],
-        created_at: Annotated[date, Form(...)],
-        updated_at: Annotated[datetime, Form(...)],
         created_by: Annotated[str, Form()]
         ):
     file_bytes = await transaction_image.read()
@@ -76,8 +74,6 @@ async def register_wallet(
                 "transaction_image": transaction_image.filename,
                 "transaction_id": transaction_id,
                 "status": status,
-                "created_at": created_at.isoformat(),
-                "updated_at": updated_at.isoformat(),
                 "created_by": created_by
                 }
         )
@@ -139,8 +135,6 @@ async def update_wallet(wallet_id:str,
         transaction_image: Annotated[UploadFile, File()],
         transaction_id: Annotated[str, Form()],
         status: Annotated[Status, Form()],
-        created_at: Annotated[date, Form(...)],
-        updated_at: Annotated[datetime, Form(...)],
         created_by: Annotated[str, Form()]
     ):
     update_data = {}
@@ -170,8 +164,6 @@ async def update_wallet(wallet_id:str,
         "transaction_image": transaction_image,
         "transaction_id": transaction_id,
         "status": status,
-        "created_at": created_at.isoformat(),
-        "updated_at": updated_at.isoformat(),
         "created_by": created_by
             }
     # Add only non-None fields to the update payload
