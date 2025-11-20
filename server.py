@@ -1,4 +1,4 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Header
 import os
 from routes.r1_users import collection1_router
 from routes.r2_farms import collection2_router
@@ -27,16 +27,18 @@ app = FastAPI(
     description="API built using appwrite's db",
     docs_url="/"
 )
-
+# http
+# http://localhost:8080
+# "GET", "POST", "PUT", "DELETE", "PATCH"
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "http://localhost:8080",
-        "https://goldfish-app-pet66.ondigitalocean.app/"
+        "*",
+        # "https://goldfish-app-pet66.ondigitalocean.app/"
     ],
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
-    allow_headers=["Content-Type", "Authorization", "Cookie"],
+    allow_methods=["*"],
+    allow_headers=["Authorization", "Content-Type", "Cookie"],
 )
 
 app.include_router(collection1_router)
@@ -59,3 +61,7 @@ app.include_router(collection17_router)
 app.include_router(storage_router)
 app.include_router(auth_router)
 app.include_router(backups_router)
+
+@app.get("/debug/headers")
+def debug_headers(authorization: str = Header(None)):
+    return {"received": authorization}

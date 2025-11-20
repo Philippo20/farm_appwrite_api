@@ -1,7 +1,8 @@
-from fastapi import APIRouter, Form, Header, HTTPException
+from fastapi import APIRouter, Form, Header, HTTPException, Depends, Request
 from appwrite.services.account import Account
 from appwrite.services.users import Users
 from appwrite.client import Client
+from appwrite.exception import AppwriteException
 from appwrite.id import ID
 from main import client, db_id, db_collection_id1
 from db import db
@@ -9,7 +10,6 @@ from appwrite.query import Query
 from pydantic import EmailStr
 from typing import Annotated, Optional
 from enum import Enum
-import bcrypt
 import smtplib
 import os
 from dotenv import load_dotenv
@@ -23,26 +23,68 @@ auth_router = APIRouter(tags=["Auth"])
 
 account = Account(client)
 
-# Helper function to create user-specific client with JWT or session
-def get_user_client(token: str) -> Client:
-    """Create Appwrite client with user token (decodes JWT to get user_id)"""
+EMAIL_USERNAME = os.getenv("EMAIL_USERNAME")
+EMAIL_PASSWORD = os.getenv("EMAIL_PASSWORD")
+EMAIL_PORT= int(os.getenv("EMAIL_PORT"))
+EMAIL_HOST = os.getenv("EMAIL_HOST")
+EMAIL_SECURITY = os.getenv("EMAIL_SECURITY")
+
+
+async def auth_middleware(request: Request, call_next):
+    """Validates Appwrite JWT token from Authorization header"""
+
+    # Allow public routes (register, login)
+    public_paths = [
+        "/auth/register",
+        "/auth/login",
+        "/docs",
+        "/openapi.json"
+    ]
+    if request.url.path in public_paths:
+        return await call_next(request)
+
+    # Read Authorization header
+    auth_header = request.headers.get("Authorization")
+    if not auth_header or not auth_header.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Missing or invalid Authorization header")
+
+    token = auth_header.replace("Bearer ", "").strip()
+
+    # Validate the JWT using Appwrite
     try:
-        # Decode JWT to get user_id
-        jwt_secret = os.getenv("JWT_SECRET_KEY", "your-secret-key-change-in-production")
-        payload = jwt.decode(token, jwt_secret, algorithms=["HS256"])
-        user_id = payload.get("user_id")
-        
-        if not user_id:
-            raise HTTPException(status_code=401, detail="Invalid token: missing user_id")
-        
-        # Note: This returns an admin client - we'll use Users service to get user data
-        return client, user_id
-    except jwt.ExpiredSignatureError:
-        raise HTTPException(status_code=401, detail="Token expired")
-    except jwt.InvalidTokenError:
-        raise HTTPException(status_code=401, detail="Invalid token")
+        client = Client()
+        client.set_endpoint(os.getenv("APPWRITE_ENDPOINT"))
+        client.set_project(os.getenv("APPWRITE_PROJECT_ID"))
+        client.set_jwt(token)
+
+        account = Account(client)
+        user = account.get()  # If invalid JWT → Appwrite throws error
+
+        # Attach user to request.state
+        request.state.user = user
+
     except Exception as e:
-        raise HTTPException(status_code=401, detail=f"Token validation failed: {str(e)}")
+        raise HTTPException(status_code=401, detail=f"Invalid or expired JWT: {str(e)}")
+
+    return await call_next(request)
+
+
+def get_server_client():
+    client = Client()
+    client.set_endpoint(os.getenv("APPWRITE_ENDPOINT"))
+    client.set_project(os.getenv("APPWRITE_PROJECT_ID"))
+    client.set_key(os.getenv("APPWRITE_API_KEY"))
+    client.set_self_signed(True)
+    return client
+
+def get_user_client_from_jwt(jwt_token: str) -> Client:
+    """Client authenticated with a JWT (user context)."""
+    client = Client()
+    client.set_endpoint(os.getenv("APPWRITE_ENDPOINT"))
+    client.set_project(os.getenv("APPWRITE_PROJECT_ID"))
+    client.set_jwt(jwt_token)
+    client.set_self_signed(True)
+    return client
 
 # Helper function to create user-specific client with session ID
 def get_session_client(session_id: str) -> Client:
@@ -53,25 +95,6 @@ def get_session_client(session_id: str) -> Client:
     user_client.set_session(session_id)
     return user_client
 
-class Role(str, Enum):
-    SUPERADMIN = "superadmin"
-    FARM_MANAGER = "farm_manager"
-    FARM_OWNER = "farm_owner"
-    CARETAKER = "caretaker"
-    FULFILLMENT = "fulfillment_manager"
-    PACKAGING_SUPERVISOR = "packaging_supervisor"
-    QA = "quality_officer"
-    SALES_MANAGER = "sales_manager"
-    SALES_PERSON = "sales_person"
-    ACCOUNTANT = "accountant"
-
-EMAIL_USERNAME = os.getenv("EMAIL_USERNAME")
-EMAIL_PASSWORD = os.getenv("EMAIL_PASSWORD")
-EMAIL_PORT= int(os.getenv("EMAIL_PORT"))
-EMAIL_HOST = os.getenv("EMAIL_HOST")
-EMAIL_SECURITY = os.getenv("EMAIL_SECURITY")
-
-# Test endpoint to verify API key is loaded
 @auth_router.get("/test/config")
 def test_config():
     """Test endpoint to verify configuration"""
@@ -89,7 +112,7 @@ def signup_user(
     email: Annotated[EmailStr, Form()],
     password: Annotated[str, Form()]
 ):
-    """Create new user account"""
+    # Create new user account
     try:
         result = account.create(
             user_id=ID.unique(),
@@ -101,201 +124,140 @@ def signup_user(
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-
 # login 
 @auth_router.post("/account/login")
 def login_user(
-    email: Annotated[EmailStr, Form(...)],
-    password: Annotated[str, Form(...)]
-):
-    """
-    Login user and create JWT token
-    Validates credentials with Appwrite and generates custom JWT
-    """
+    email: Annotated[EmailStr, Form(...)], 
+    password: Annotated[str, Form(...)]):
     try:
-        # Validate credentials by creating session
-        # This also gives us back user info
-        session = account.create_email_password_session(
+        # Create session using SERVER KEY
+        server_client = get_server_client()
+        server_account = Account(server_client)
+
+        session = server_account.create_email_password_session(
             email=email,
             password=password
         )
-        
-        # IMPORTANT: Create Appwrite JWT (not custom JWT)
-        # jwt_result = account.create_jwt()
-        
-        user_id = session["userId"]
-        print(f"DEBUG login: Session created for user {user_id}")
-        
-        # Create custom JWT with user info from session
-        jwt_secret = os.getenv("JWT_SECRET_KEY", "your-secret-key-change-in-production")
-        payload = {
-            "user_id": user_id,
-            "email": email,
-            "exp": datetime.datetime.utcnow() + datetime.timedelta(days=7),
-            "iat": datetime.datetime.utcnow()
-        }
-        jwt_token = jwt.encode(payload, jwt_secret, algorithm="HS256")
-        
-        print(f"DEBUG login: JWT created, length: {len(jwt_token)}")
-        
+
+        # Create a USER client using the session cookie
+        user_client = Client()
+        user_client.set_endpoint(os.getenv("APPWRITE_ENDPOINT"))
+        user_client.set_project(os.getenv("APPWRITE_PROJECT_ID"))
+
+        # Appwrite stores session in cookies -> pass it manually
+        session_secret = session["secret"]
+        user_client.set_session(session_secret)
+
+        user_account = Account(user_client)
+
+        # Now create JWT using user session client (NOT server key)
+        jwt_result = user_account.create_jwt()
+
         return {
             "message": "Login successful",
-            "user": {"id": user_id, "email": email},
             "session_id": session["$id"],
-            # "jwt": jwt_result.get("jwt"), #jwt_token 
-            # "secret": jwt_result.get("secret")  # Secret for session management
+            "jwt": jwt_result["jwt"]
         }
+
     except Exception as e:
-        print(f"DEBUG login ERROR: {type(e).__name__}: {str(e)}")
         raise HTTPException(status_code=401, detail=f"Login failed: {str(e)}")
 
-# magic url token
-@auth_router.post("/account/tokens/magic-url")
-def create_magic_url_token(user_id:Annotated[str, Form(...)],
-                           email: Annotated[EmailStr, Form(...)]):
-    try:
-        result = account.create_magic_url_token(
-            user_id = user_id,
-            email = email,
-            url = 'https://oyster-app-moqn5.ondigitalocean.app/', # optional
-            phrase = False # optional
-        )
-        return {"message": f"Magic link sent to {email}", "user_id": result["$id"]}
-    except Exception as e:
-        return {"error": str(e)}
-
-# create session
-@auth_router.post("/account/sessions/token")
-def create_session(
-    user_id:str,
-    secret:str):
-    try:
-        result = account.create_session(
-        user_id = user_id,
-        secret = secret
-    )
-        return {"message": "User's session added successfully", "secret_id": result["$id"]}
-    except Exception as e:
-        return {"error": str(e)}
-
-
-# SIGNIP WITH BCRYPT
-@auth_router.post("/users/bcrypt")
-def create_user_with_bcrypt(
-    password: Annotated[str, Form()]
-    ):
-    try:
-        # Hash the password using bcrypt
-        hashed_password = bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
-
-        result = account.create_mfa_authenticator(
-            type="totp"
-        )
-     
-        return {"message": f"User created successfully {result}"} #"user_id": result["$id"]}
-    except Exception as e:
-        return {"error": str(e)}
-
 # email verification
-@auth_router.post("/auth/verify")
-def send_verification_email(authorization: str = Header(None)):
-    try:
+@auth_router.post("/auth/verifications/email")
+def send_verification_email(authorization: Optional[str] = Header(None)):
         if not authorization:
-            return {"error": "Authorization header missing"}
+            raise HTTPException(status_code=401, detail="Authorization header missing")
         
-        token = authorization.replace("Bearer ", "")
+        token = authorization.replace("Bearer ", "").strip()
+        try:
+            user_client = get_user_client_from_jwt(token)
+            account = Account(user_client)
+            result = account.create_verification(url="https://oyster-app-moqn5.ondigitalocean.app/#/verify")
+            return {"message": "Verification email sent", "data": result}
+        except AppwriteException as e:
+            raise HTTPException(status_code=e.code or 400, detail=e.message)
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=str(e))
 
+        # client = Client()
+        # # client.set_endpoint(os.getenv("APPWRITE_ENDPOINT"))
+        # client.set_project(os.getenv("APPWRITE_PROJECT_ID"))
+        # # client.set_jwt(token)  # VERY IMPORTANT
+
+        # account = Account(client)
+        # verification = account.create_verification(
+        #     url="https://oyster-app-moqn5.ondigitalocean.app/")
+        # return {"message": "Verification email sent", "verification_id": verification["$id"]}
+        # except Exception as e:
+        #     return {"error": str(e)}
+
+# create password recovery
+@auth_router.post("/account/recovery")
+def create_password_recovery(email: Annotated[EmailStr, Form()]):
+    try:
         client = Client()
         client.set_endpoint(os.getenv("APPWRITE_ENDPOINT"))
         client.set_project(os.getenv("APPWRITE_PROJECT_ID"))
-        client.set_jwt(token)  # VERY IMPORTANT
+        client.set_session('')
 
-        account = Account(client)
-        verification = account.create_verification(
-            url="https://oyster-app-moqn5.ondigitalocean.app/")
-        return {"message": "Verification email sent", "verification_id": verification["$id"]}
+        account=Account(client)
+        result = account.create_recovery(
+                    email = email,
+                    url = "https://oyster-app-moqn5.ondigitalocean.app/#/reset-password"
+        )
+        return {"message": "Verification email sent", "verification_id": result["$id"]}
     except Exception as e:
         return {"error": str(e)}
 
-
-# get account user 
-@auth_router.get("/account")
-def get_account_user(authorization: Annotated[str, Header()]):
-    # Requires:   with Bearer token (JWT from login)
+# Confirm verification
+@auth_router.get("/verify/confirm")
+def confirm_verification(user_id: str, secret: str):
     try:
-        # Extract token from "Bearer <token>"
-        if not authorization.startswith("Bearer "):
-            raise HTTPException(status_code=401, detail="Invalid authorization header format")
-        
-        token = authorization.replace("Bearer ", "")
-        
-        # Decode JWT and get user_id
-        _, user_id = get_user_client(token)
-        
-        # Get user details from Appwrite
-        try:
-            users_service = Users(client)
-            user = users_service.get(user_id=user_id)
-            user_email = user.get('email')
-            print(f"DEBUG /account: Got user from Appwrite: {user_email}")
-            
-            # Fetch role from database
-            try:
-                user_docs = db.list_documents(
-                    database_id=db_id,
-                    collection_id=db_collection_id1,
-                    queries=[Query.equal('email', user_email)]
-                )
-                
-                if user_docs['total'] > 0:
-                    db_user = user_docs['documents'][0]
-                    user['role'] = db_user.get('role', 'superadmin')
-                    user['phone'] = db_user.get('phone', '')
-                    user['address'] = db_user.get('address', '')
-                    user['department'] = db_user.get('department', '')
-                    print(f"DEBUG /account: Added role from DB: {user['role']}")
-                else:
-                    user['role'] = 'superadmin'  # Default role
-                    print(f"DEBUG /account: No DB record found, using default role")
-            except Exception as db_error:
-                print(f"DEBUG /account: DB query failed ({str(db_error)}), using default role")
-                user['role'] = 'superadmin'
-            
-            return user
-        except Exception as e:
-            # Fallback: return user info from JWT if Users service fails
-            print(f"DEBUG /account: Users service failed ({str(e)}), using JWT data")
-            jwt_secret = os.getenv("JWT_SECRET_KEY", "your-secret-key-change-in-production")
-            payload = jwt.decode(token, jwt_secret, algorithms=["HS256"])
-            return {
-                "$id": payload.get("user_id"),
-                "email": payload.get("email"),
-                "name": payload.get("name", ""),
-                "role": "superadmin",  # Default role
-                "registration": ""
-            }
-    except HTTPException:
-        raise
+        server_client = get_server_client()
+        account = Account(server_client)
+        result = account.update_verification(user_id=user_id, secret=secret)
+        return {"message": "Verification confirmed", "data": result}
+    except AppwriteException as e:
+        raise HTTPException(status_code=e.code or 400, detail=e.message)
     except Exception as e:
-        print(f"DEBUG /account ERROR: {type(e).__name__}: {str(e)}")
-        raise HTTPException(status_code=401, detail=f"Authentication failed: {str(e)}")
+        raise HTTPException(status_code=400, detail=str(e))
 
-# get session
-@auth_router.get("/account/sessions/{sessionId}")
-def get_session(session_id: str, authorization: Annotated[str, Header()]):
-    """Get specific session - requires JWT"""
+# update email verification
+@auth_router.put("/account/verifications/email")
+def update_email_verification(user_id:str, secret_id:str):
     try:
-        if not authorization.startswith("Bearer "):
-            raise HTTPException(status_code=401, detail="Invalid authorization header")
-        
-        jwt_token = authorization.replace("Bearer ", "")
-        user_client = get_user_client(jwt_token)
-        user_account = Account(user_client)
-        
-        result = user_account.get_session(session_id=session_id)
-        return result
+        client = Client()
+        client.set_endpoint(os.getenv("APPWRITE_ENDPOINT"))
+        client.set_project(os.getenv("APPWRITE_PROJECT_ID"))
+        client.set_session('')
+
+        account = Account(client)
+        verification= account.update_verification(
+            user_id= user_id,
+            secret=secret_id
+        )
+        return {"message": "Verification email updated", "verification_id": verification["$id"]}
     except Exception as e:
-        raise HTTPException(status_code=401, detail=f"Failed to get session: {str(e)}")
+        return {"error": str(e)}
+
+# Update password recovery (confirmation)
+@auth_router.put("/account/recovery")
+def update_password_recovery(user_id:str, secret_id:str, password:str):
+    try:
+        client = Client()
+        client.set_endpoint(os.getenv("APPWRITE_ENDPOINT"))
+        client.set_project(os.getenv("APPWRITE_PROJECT_ID"))
+        client.set_session('')
+
+        account = Account(client)
+        result = account.update_recovery(
+            user_id = user_id,
+            secret = secret_id,
+            password = password
+        )
+        return {"message": "Password changed successfully", "verification_id": result["$id"]}
+    except Exception as e:
+        return {"error": str(e)}
 
 # update email 
 @auth_router.patch("/account/email")
@@ -304,13 +266,12 @@ def update_email(
     password: Annotated[str, Form(...)],
     authorization: Annotated[str, Header()]
 ):
-    """Update user email - requires JWT"""
     try:
         if not authorization.startswith("Bearer "):
             raise HTTPException(status_code=401, detail="Invalid authorization header")
         
         jwt_token = authorization.replace("Bearer ", "")
-        user_client = get_user_client(jwt_token)
+        user_client = get_user_client_from_jwt(jwt_token)
         user_account = Account(user_client)
         
         result = user_account.update_email(email=email, password=password)
@@ -324,20 +285,18 @@ def update_name(
     name: Annotated[str, Form(...)],
     authorization: Annotated[str, Header()]
 ):
-    """Update user name - requires JWT"""
     try:
         if not authorization.startswith("Bearer "):
             raise HTTPException(status_code=401, detail="Invalid authorization header")
         
         jwt_token = authorization.replace("Bearer ", "")
-        user_client = get_user_client(jwt_token)
+        user_client = get_user_client_from_jwt(jwt_token)
         user_account = Account(user_client)
         
         result = user_account.update_name(name=name)
         return {"message": "Name updated successfully!", "user_id": result["$id"]}
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Failed to update name: {str(e)}")
-
 
 # update password 
 @auth_router.patch("/account/password")
@@ -346,20 +305,18 @@ def update_password(
     old_password: Annotated[str, Form(...)],
     authorization: Annotated[str, Header()]
 ):
-    """Update user password - requires JWT"""
     try:
         if not authorization.startswith("Bearer "):
             raise HTTPException(status_code=401, detail="Invalid authorization header")
         
         jwt_token = authorization.replace("Bearer ", "")
-        user_client = get_user_client(jwt_token)
+        user_client = get_user_client_from_jwt(jwt_token)
         user_account = Account(user_client)
         
         result = user_account.update_password(password=password, old_password=old_password)
         return {"message": "Password updated successfully!", "user_id": result["$id"]}
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Failed to update password: {str(e)}")
-
 
 # update phone 
 @auth_router.patch("/account/phone")
@@ -368,13 +325,12 @@ def update_phone(
     password: Annotated[str, Form(...)],
     authorization: Annotated[str, Header()]
 ):
-    """Update user phone - requires JWT"""
     try:
         if not authorization.startswith("Bearer "):
             raise HTTPException(status_code=401, detail="Invalid authorization header")
         
         jwt_token = authorization.replace("Bearer ", "")
-        user_client = get_user_client(jwt_token)
+        user_client = get_user_client_from_jwt(jwt_token)
         user_account = Account(user_client)
         
         result = user_account.update_phone(phone=phone, password=password)
@@ -382,40 +338,40 @@ def update_phone(
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Failed to update phone: {str(e)}")
 
-
-# delete account user 
-@auth_router.delete("/account/identities/{identityId}")
-def delete_account(
-    identityId: str,
-    authorization: Annotated[str, Header()]
-):
-    """Delete user identity - requires JWT"""
+def get_current_user(authorization: Optional[str] = Header(None)):
+    if not authorization:
+        raise HTTPException(status_code=401, detail="Authorization header missing")
+    token = authorization.replace("Bearer ", "").strip()
     try:
-        if not authorization.startswith("Bearer "):
-            raise HTTPException(status_code=401, detail="Invalid authorization header")
-        
-        jwt_token = authorization.replace("Bearer ", "")
-        user_client = get_user_client(jwt_token)
-        user_account = Account(user_client)
-        
-        result = user_account.delete_identity(identity_id=identityId)
-        return {"message": f"Identity {identityId} has been deleted successfully!"}
+        user_client = get_user_client_from_jwt(token)
+        account = Account(user_client)
+        user = account.get()
+        return user
+    except AppwriteException as e:
+        raise HTTPException(status_code=e.code or 401, detail=e.message)
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Failed to delete identity: {str(e)}")
+        raise HTTPException(status_code=401, detail=str(e))
 
-# delete session
-@auth_router.delete("/account/sessions")
-def delete_session(authorization: Annotated[str, Header()]):
-    """Delete all user sessions (logout) - requires JWT"""
+@auth_router.get("/me")
+def me(user: dict = Depends(get_current_user)):
+    return {"user": user}
+
+# logout
+@auth_router.post("/logout")
+def logout(authorization: Optional[str] = Header(None)):
+    if not authorization:
+        raise HTTPException(status_code=401, detail="Authorization header missing")
+    token = authorization.replace("Bearer ", "").strip()
     try:
-        if not authorization.startswith("Bearer "):
-            raise HTTPException(status_code=401, detail="Invalid authorization header")
-        
-        jwt_token = authorization.replace("Bearer ", "")
-        user_client = get_user_client(jwt_token)
-        user_account = Account(user_client)
-        
-        result = user_account.delete_sessions()
-        return {"message": "All sessions deleted successfully (logged out)"}
+        # build user client from JWT and call delete_current_session
+        user_client = get_user_client_from_jwt(token)
+        account = Account(user_client)
+        try:
+            account.delete_session()
+        except Exception:
+            pass
+        return {"message": "Logged out"}
+    except AppwriteException as e:
+        raise HTTPException(status_code=e.code or 400, detail=e.message)
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Failed to delete sessions: {str(e)}")
+        raise HTTPException(status_code=400, detail=str(e))
