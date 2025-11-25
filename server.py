@@ -34,7 +34,8 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "*",
-        # "https://goldfish-app-pet66.ondigitalocean.app/"
+        "http://localhost:8080",
+        "https://goldfish-app-pet66.ondigitalocean.app/"
     ],
     allow_credentials=True,
     allow_methods=["*"],
