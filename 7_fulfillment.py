@@ -162,3 +162,66 @@ result = db.create_enum_attribute(
     elements=["Received", "Packaging", "Packaged", "Sent to Sales", "Completed"],
     required= True
 )
+
+result = db.create_enum_attribute(
+    database_id= db_id,
+    collection_id= db_collection_id7,
+    key="delivery_status",
+    elements=["Pending Approval", "Scheduled", "In Transit", "Delivered", "On Hold", "Cancelled", "Rejected"],
+    required= False,
+    default="Pending Approval"
+)
+
+result = db.create_string_attribute(
+    database_id= db_id,
+    collection_id= db_collection_id7,
+    key="driver_name",
+    size= 225,
+    required= False,
+    default="Unassigned"
+)
+
+result = db.create_string_attribute(
+    database_id= db_id,
+    collection_id= db_collection_id7,
+    key="vehicle",
+    size= 225,
+    required= False,
+    default="Pending"
+)
+
+result = db.create_string_attribute(
+    database_id= db_id,
+    collection_id= db_collection_id7,
+    key="destination",
+    size= 225,
+    required= False,
+    default="Sales Hub"
+)
+
+result = db.create_string_attribute(
+    database_id= db_id,
+    collection_id= db_collection_id7,
+    key="eta",
+    size= 225,
+    required= False,
+    default=""
+)
+
+result = db.create_enum_attribute(
+    database_id= db_id,
+    collection_id= db_collection_id7,
+    key="priority",
+    elements=["High", "Medium", "Low"],
+    required= False,
+    default="Medium"
+)
+
+result = db.create_string_attribute(
+    database_id= db_id,
+    collection_id= db_collection_id7,
+    key="delivery_note",
+    size= 1000,
+    required= False,
+    default=""
+)

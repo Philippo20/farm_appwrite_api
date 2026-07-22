@@ -5,6 +5,7 @@ from datetime import datetime, date
 from main import db_id, db_collection_id8
 from db import db
 from appwrite.id import ID
+from audit_utils import write_audit
 
 collection8_router = APIRouter(tags=["Sales"])
 
@@ -57,6 +58,14 @@ def register_sales(
         collection_id=db_collection_id8,
         document_id=ID.unique(),
         data= sales_info
+    )
+    write_audit(
+        action_type="Create",
+        collection_name="Sales",
+        performed_by_id=created_by,
+        performed_by_role="sales_person",
+        action_details=f"Created sales delivery record for batch {batch_id}",
+        new_data=sales_info
     )
 
     return {
@@ -115,12 +124,12 @@ def update_sale(sale_id:str,
     status: Annotated[Status, Form()]
     ):
     try:
-        # Perform update
-        updated_sales_info = db.update_document(
+        previous_sale = db.get_document(
             database_id=db_id,
             collection_id=db_collection_id8,
-            document_id=sale_id,
-            data={"batch_id": batch_id,
+            document_id=sale_id
+        )
+        update_data = {"batch_id": batch_id,
                   "buyer_id": buyer_id,
                   "buyer_name": buyer_name,
                   "delivered_by": delivered_by,
@@ -134,8 +143,23 @@ def update_sale(sale_id:str,
                   "payment_date": payment_date.isoformat(),
                   "created_by": created_by,
                   "status": status
-            },
+            }
+        # Perform update
+        updated_sales_info = db.update_document(
+            database_id=db_id,
+            collection_id=db_collection_id8,
+            document_id=sale_id,
+            data=update_data,
             permissions=[]
+        )
+        write_audit(
+            action_type="Update",
+            collection_name="Sales",
+            performed_by_id=created_by,
+            performed_by_role="sales_person",
+            action_details=f"Updated sales delivery record for batch {batch_id}",
+            previous_data=previous_sale,
+            new_data=update_data
         )
         return {"message": "Sales info updated successfully", "user": updated_sales_info}
 
@@ -145,10 +169,23 @@ def update_sale(sale_id:str,
 @collection8_router.delete("/sales/{sale_id}")
 def delete_sale(sale_id:str):
     try:
+        previous_sale = db.get_document(
+            database_id=db_id,
+            collection_id=db_collection_id8,
+            document_id=sale_id
+        )
         db.delete_document(
             database_id=db_id,
             collection_id=db_collection_id8, 
             document_id=sale_id)
+        write_audit(
+            action_type="Delete",
+            collection_name="Sales",
+            performed_by_id=previous_sale.get("created_by", "system"),
+            performed_by_role="sales_person",
+            action_details=f"Deleted sales delivery record {previous_sale.get('batch_id', sale_id)}",
+            previous_data=previous_sale
+        )
         return {"message": f"User with ID {sale_id} deleted successfully"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

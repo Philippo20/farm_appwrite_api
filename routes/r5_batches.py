@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Form, File, UploadFile, HTTPException, status
-from typing import Annotated
+from typing import Annotated, Optional
 from enum import Enum
 from datetime import datetime, date, timezone
 from main import db_id, db_collection_id5, bucket_id, project_id, appwrite_endpoint
@@ -46,7 +46,6 @@ async def register_batch(
         total_harvested: Annotated[int, Form()],
         total_transplanted: Annotated[int, Form()],
         total_weight_kg: Annotated[float, Form()],
-        harvest_images: Annotated[UploadFile, File()],
         production_status: Annotated[ProductionStatus, Form()],
         technical_issues: Annotated[str, Form()],
         inputs_supplied: Annotated[str, Form()],
@@ -59,32 +58,34 @@ async def register_batch(
         created_at: Annotated[date, Form(...)],
         updated_at: Annotated[datetime, Form(...)],
         end_date: Annotated[date, Form(...)]= None,
+        harvest_images: Optional[UploadFile] = File(None),
         ):
     updated_at = datetime.now(timezone.utc).isoformat()
     
-    file_bytes = await harvest_images.read()
-    
     try:
-        # Upload file to Appwrite Storage
-        uploaded_file = st.create_file(
-            bucket_id=bucket_id,
-            file_id=ID.unique(),
-            file=InputFile.from_bytes(file_bytes, filename=harvest_images.filename)
-            # file=crop_image.file  # use the file object directly
-        )
-        file_id = uploaded_file["$id"]
-
-        # Generate file URLs
-        view_url = f"{appwrite_endpoint}/storage/buckets/{bucket_id}/files/{file_id}/view?project={project_id}"
-        download_url = f"{appwrite_endpoint}/storage/buckets/{bucket_id}/files/{file_id}/download?project={project_id}"
+        file_id = ""
+        view_url = ""
+        download_url = ""
+        if harvest_images is not None:
+            file_bytes = await harvest_images.read()
+            uploaded_file = st.create_file(
+                bucket_id=bucket_id,
+                file_id=ID.unique(),
+                file=InputFile.from_bytes(file_bytes, filename=harvest_images.filename)
+            )
+            file_id = uploaded_file["$id"]
+            view_url = f"{appwrite_endpoint}/storage/buckets/{bucket_id}/files/{file_id}/view?project={project_id}"
+            download_url = f"{appwrite_endpoint}/storage/buckets/{bucket_id}/files/{file_id}/download?project={project_id}"
 
 
         # Save URLs to Appwrite Database
+        document_id = ID.unique()
         batches_info = db.create_document(
             database_id=db_id,
             collection_id=db_collection_id5,
-            document_id=ID.unique(),
+            document_id=document_id,
             data={
+                "batch_id": document_id,
                 "batch_no": batch_no,
                 "farmID": farmID,
                 "farm_name": farm_name,
@@ -95,8 +96,8 @@ async def register_batch(
                 "caretaker_id": caretaker_id,
                 "caretaker_name": caretaker_name,   
                 "start_date": start_date.isoformat(),
-                "end_date": end_date.isoformat(),
-                "actual_harvest_date": actual_harvest_date.isoformat(),
+                "end_date": end_date.isoformat() if end_date else "",
+                "actual_harvest_date": actual_harvest_date.isoformat() if actual_harvest_date else "",
                 "total_seeds_nursed": total_seeds_nursed,   
                 "total_harvested": total_harvested,   
                 "total_transplanted": total_transplanted,   

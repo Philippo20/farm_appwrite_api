@@ -25,6 +25,30 @@ result = db.create_string_attribute(
 result = db.create_string_attribute(
     database_id= db_id,
     collection_id= db_collection_id16,
+    key= "crop_image_file_id",
+    size= 225,
+    required= False
+)
+
+result = db.create_string_attribute(
+    database_id= db_id,
+    collection_id= db_collection_id16,
+    key= "crop_image_url",
+    size= 2048,
+    required= False
+)
+
+result = db.create_string_attribute(
+    database_id= db_id,
+    collection_id= db_collection_id16,
+    key= "crop_image_download_url",
+    size= 2048,
+    required= False
+)
+
+result = db.create_string_attribute(
+    database_id= db_id,
+    collection_id= db_collection_id16,
     key= "variety_name",
     size= 225,
     required= True

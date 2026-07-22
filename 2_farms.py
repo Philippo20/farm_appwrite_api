@@ -38,6 +38,24 @@ result = db.create_string_attribute(
     required= True
 )
 
+result = db.create_string_attribute(
+    database_id= db_id,
+    collection_id= db_collection_id2,
+    key="farm_manager_id",
+    size=225,
+    required=False,
+    default="Unassigned"
+)
+
+result = db.create_string_attribute(
+    database_id= db_id,
+    collection_id= db_collection_id2,
+    key="technician_id",
+    size=225,
+    required=False,
+    default="Unassigned"
+)
+
 result = db.create_enum_attribute(
     database_id= db_id,
     collection_id= db_collection_id2,
@@ -50,7 +68,7 @@ result = db.create_enum_attribute(
     database_id= db_id,
     collection_id= db_collection_id2,
     key="status",
-    elements=["active", "inactive"],
+    elements=["Active", "Pending", "Suspended"],
     required= True
 )
 
@@ -68,4 +86,13 @@ result = db.create_string_attribute(
     key="plant_variety",
     size=100,
     required= True
+)
+
+result = db.create_string_attribute(
+    database_id=db_id,
+    collection_id=db_collection_id2,
+    key="sensor_ingest_api_key",
+    size=255,
+    required=False,
+    default=""
 )

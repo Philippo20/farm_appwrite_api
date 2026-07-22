@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Form, HTTPException, status
 from typing import Annotated
 from enum import Enum
-from datetime import datetime, date
+from datetime import datetime
 from main import db_id, db_collection_id6
 from db import db
 from appwrite.id import ID
@@ -24,10 +24,11 @@ class Status(str, Enum):
 
 class Role(str, Enum):
     ROLE_SUPERADMIN = "superadmin"
+    ROLE_ADMIN = "admin"
     ROLE_FARM_MANAGER = "farm_manager"
     ROLE_FARM_OWNER = "farm_owner"
     ROLE_CARETAKER = "caretaker"
-    ROLE_TECHNICIANS = "technicians"
+    ROLE_TECHNICIAN = "technician"
     ROLE_FULFILLMENT = "fulfillment_manager"
     ROLE_PACKAGING = "packaging_supervisor"
     ROLE_QA = "quality_officer"
@@ -41,24 +42,24 @@ def register_audit(
         collection_name: Annotated[str, Form()],
         performed_by_id: Annotated[str, Form()],
         performed_by_role: Annotated[Role, Form()],
-        timestamp: Annotated[date, Form(...)],
+        timestamp: Annotated[datetime, Form(...)],
         ip_address: Annotated[str, Form()],
         action_details: Annotated[str, Form()],
         status: Annotated[Status, Form()],
-        previous_data: Annotated[str, Form()],
-        new_data: Annotated[str, Form()]
+        previous_data: Annotated[str, Form()] = "",
+        new_data: Annotated[str, Form()] = ""
         ):    
 
     audits_info = {
         "audit_id": ID.unique(),
-        "action_type": action_type,
+        "action_type": action_type.value,
         "collection_name": collection_name,
         "performed_by_id": performed_by_id,
-        "performed_by_role": performed_by_role,
+        "performed_by_role": performed_by_role.value,
         "timestamp": timestamp.isoformat(),
         "ip_address": ip_address,
         "action_details": action_details,
-        "status": status,
+        "status": status.value,
         "previous_data": previous_data,
         "new_data": new_data
     }
@@ -115,12 +116,12 @@ def update_audit(audit_id:str,
     collection_name: Annotated[str, Form()],
     performed_by_id: Annotated[str, Form()],
     performed_by_role: Annotated[Role, Form()],
-    timestamp: Annotated[date, Form(...)],
+    timestamp: Annotated[datetime, Form(...)],
     ip_address: Annotated[str, Form()],
     action_details: Annotated[str, Form()],
     status: Annotated[Status, Form()],
-    previous_data: Annotated[str, Form()],
-    new_data: Annotated[str, Form()]
+    previous_data: Annotated[str, Form()] = "",
+    new_data: Annotated[str, Form()] = ""
     ):
     try:
         # Perform update
@@ -128,14 +129,14 @@ def update_audit(audit_id:str,
             database_id=db_id,
             collection_id=db_collection_id6,
             document_id=audit_id,
-            data={"action_type": action_type,
+            data={"action_type": action_type.value,
                   "collection_name": collection_name,
                   "performed_by_id": performed_by_id,
-                  "performed_by_role": performed_by_role,
+                  "performed_by_role": performed_by_role.value,
                   "timestamp": timestamp.isoformat(),
                   "ip_address": ip_address,
                   "action_details": action_details,
-                  "status": status,
+                  "status": status.value,
                   "previous_data": previous_data,
                   "new_data": new_data
             },

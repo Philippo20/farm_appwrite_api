@@ -143,6 +143,7 @@ def login_user(
         user_client = Client()
         user_client.set_endpoint(os.getenv("APPWRITE_ENDPOINT"))
         user_client.set_project(os.getenv("APPWRITE_PROJECT_ID"))
+        user_client.set_self_signed(True)
 
         # Appwrite stores session in cookies -> pass it manually
         session_secret = session["secret"]
@@ -150,15 +151,37 @@ def login_user(
 
         user_account = Account(user_client)
 
+        profile_result = db.list_documents(
+            database_id=db_id,
+            collection_id=db_collection_id1,
+            queries=[Query.equal("email", email)]
+        )
+        profile = profile_result["documents"][0] if profile_result["total"] > 0 else None
+        if not profile:
+            raise HTTPException(
+                status_code=403,
+                detail="Login blocked: user profile was not found."
+            )
+
+        user_status = profile.get("status", "Active")
+        if user_status != "Active":
+            raise HTTPException(
+                status_code=403,
+                detail=f"Login blocked: your account status is {user_status}."
+            )
+
         # Now create JWT using user session client (NOT server key)
         jwt_result = user_account.create_jwt()
 
         return {
             "message": "Login successful",
             "session_id": session["$id"],
-            "jwt": jwt_result["jwt"]
+            "jwt": jwt_result["jwt"],
+            "user": profile
         }
 
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=401, detail=f"Login failed: {str(e)}")
 

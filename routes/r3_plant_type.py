@@ -1,13 +1,10 @@
-from fastapi import APIRouter, Form, File, UploadFile, HTTPException, status
+from fastapi import APIRouter, Form, HTTPException, status
 from typing import Annotated
 from enum import Enum
-from datetime import datetime, date, timezone
-from main import db_id, db_collection_id3, bucket_id, project_id, appwrite_endpoint
+from main import db_id, db_collection_id3
 from db import db
 from appwrite.id import ID
-from appwrite.query import Query
-from appwrite.input_file import InputFile
-from storage import st
+from audit_utils import write_audit
 
 
 collection3_router = APIRouter(tags=["Plant type"])
@@ -16,68 +13,47 @@ class Status(str, Enum):
     ACTIVE = "active"
     INACTIVE = "inactive"
 
-class PackageTypes(str, Enum):
-    SMALL = "Small"
-    MEDIUM = "Medium"
-    LARGE = "Large"
-
 @collection3_router.post("/plant_type/info")
 async def register_plant_type(
         name: Annotated[str, Form()],
-        farmID: Annotated[str, Form()],
         months_to_maturity: Annotated[int, Form()],
-        image_url: Annotated[UploadFile, File()],
-        growth_conditions: Annotated[str, Form()],
-        packaging_weights: Annotated[float, Form()],
-        package_types: Annotated[PackageTypes, Form()],
-        price_per_package: Annotated[float, Form()],
+        image_url: Annotated[str, Form()],
         status: Annotated[Status, Form()],
-        created_by: Annotated[str, Form()]
-        ):    
-    file_bytes = await image_url.read()
-    
+        category: Annotated[str, Form()] = "Plant Types",
+        ):
     try:
-        # Upload file to Appwrite Storage
-        uploaded_file = st.create_file(
-            bucket_id=bucket_id,
-            file_id=ID.unique(),
-            file=InputFile.from_bytes(file_bytes, filename=image_url.filename)
-            # file=crop_image.file  # use the file object directly
-        )
-        file_id = uploaded_file["$id"]
-
-        # Generate file URLs
-        view_url = f"{appwrite_endpoint}/storage/buckets/{bucket_id}/files/{file_id}/view?project={project_id}"
-        download_url = f"{appwrite_endpoint}/storage/buckets/{bucket_id}/files/{file_id}/download?project={project_id}"
-
-
-        # Save URLs to Appwrite Database
+        plant_data = {
+                "name": name,
+                "category": category,
+                "is_category": False,
+                "farmID": "plant-catalog",
+                "months_to_maturity": months_to_maturity,
+                "image_url": image_url,
+                "growth_conditions": "Moved to crop/production settings",
+                "packaging_weights": 0,
+                "package_types": "Medium",
+                "price_per_package": 0,
+                "status": status,
+                "created_by": "Plant Type Catalog"
+                }
         plant_type_info_doc = db.create_document(
             database_id=db_id,
             collection_id=db_collection_id3,
             document_id=ID.unique(),
-            data={
-                "name": name,
-                "farmID": farmID,
-                "months_to_maturity": months_to_maturity,
-                "image_url": image_url.filename,
-                "growth_conditions": growth_conditions,
-                "packaging_weights": packaging_weights,
-                "package_types": package_types,
-                "price_per_package": price_per_package,
-                "status": status,
-                "created_by": created_by
-                }
+            data=plant_data
+        )
+        write_audit(
+            action_type="Create",
+            collection_name="Plant types",
+            action_details=f"Created plant type {name}",
+            new_data=plant_data
         )
         return {
             "message": "Plant-type details are successfully created",
-            "file_id": file_id,
-            "view_url": view_url,
-            "download_url": download_url,
             "plant_type_ID": plant_type_info_doc["$id"]
         }
     except Exception as e:
-        return {"error": str(e)}
+        raise HTTPException(status_code=500, detail=str(e))
 
 @collection3_router.get("/plant_type")
 def get_all_plant_type_infos():
@@ -95,6 +71,86 @@ def get_all_plant_type_infos():
             "users": plant_type_users
         }
 
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@collection3_router.post("/plant_type/categories")
+async def create_plant_type_category(
+        name: Annotated[str, Form()],
+        status: Annotated[Status, Form()] = Status.ACTIVE,
+        ):
+    category = name.strip()
+    if not category:
+        raise HTTPException(status_code=400, detail="Category name is required")
+    try:
+        existing = db.list_documents(
+            database_id=db_id,
+            collection_id=db_collection_id3
+        )["documents"]
+        for doc in existing:
+            if doc.get("is_category") and doc.get("category", "").lower() == category.lower():
+                return {
+                    "message": "Category already exists",
+                    "category_id": doc["$id"]
+                }
+
+        category_data = {
+                "name": category,
+                "category": category,
+                "is_category": True,
+                "farmID": "plant-category",
+                "months_to_maturity": 0,
+                "image_url": "",
+                "growth_conditions": "Category marker",
+                "packaging_weights": 0,
+                "package_types": "Medium",
+                "price_per_package": 0,
+                "status": status,
+                "created_by": "Plant Type Catalog"
+            }
+        category_doc = db.create_document(
+            database_id=db_id,
+            collection_id=db_collection_id3,
+            document_id=ID.unique(),
+            data=category_data
+        )
+        write_audit(
+            action_type="Create",
+            collection_name="Plant types",
+            action_details=f"Created plant type category {category}",
+            new_data=category_data
+        )
+        return {
+            "message": "Plant type category created",
+            "category_id": category_doc["$id"]
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@collection3_router.delete("/plant_type/categories/{category_id}")
+def delete_plant_type_category(category_id: str):
+    try:
+        category_doc = db.get_document(
+            database_id=db_id,
+            collection_id=db_collection_id3,
+            document_id=category_id
+        )
+        if not category_doc.get("is_category"):
+            raise HTTPException(status_code=400, detail="Document is not a category")
+        db.delete_document(
+            database_id=db_id,
+            collection_id=db_collection_id3,
+            document_id=category_id
+        )
+        write_audit(
+            action_type="Delete",
+            collection_name="Plant types",
+            action_details=f"Deleted plant type category {category_doc.get('name', category_id)}",
+            previous_data=category_doc
+        )
+        return {"message": "Plant type category deleted"}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     
@@ -115,78 +171,65 @@ def get_plant_type_info(plant_type_id:str):
 @collection3_router.put("/plant_type/{plant_type_id}")
 async def update_plant_type(plant_type_id:str,
     name: Annotated[str, Form()],
-    farmID: Annotated[str, Form()],
     months_to_maturity: Annotated[int, Form()],
-    image_url: Annotated[UploadFile, File()],
-    growth_conditions: Annotated[str, Form()],
-    packaging_weights: Annotated[float, Form()],
-    package_types: Annotated[PackageTypes, Form()],
-    price_per_package: Annotated[float, Form()],
+    image_url: Annotated[str, Form()],
     status: Annotated[Status, Form()],
-    created_by: Annotated[str, Form()]
+    category: Annotated[str, Form()] = "Plant Types"
     ):
-    updated_at = datetime.now(timezone.utc).isoformat()
-
-    update_data = {}
-
-    # If a new image is uploaded, replace the old one
-    if image_url:
-        file_bytes = await image_url.read()
-        uploaded_file = st.create_file(
-            bucket_id=bucket_id,
-            file_id=ID.unique(),
-            file=InputFile.from_bytes(file_bytes, filename=image_url.filename)
-        )
-
-        file_id = uploaded_file["$id"]
-        view_url = f"{appwrite_endpoint}/storage/buckets/{bucket_id}/files/{file_id}/view?project={project_id}"
-        download_url = f"{appwrite_endpoint}/storage/buckets/{bucket_id}/files/{file_id}/download?project={project_id}"
-
-    # Only include fields that were actually provided
-    form_fields = {"name": name,
-                  "farmID": farmID,
-                  "months_to_maturity": months_to_maturity,
-                  "image_url": image_url,
-                  "growth_conditions": growth_conditions,
-                  "packaging_weights": packaging_weights,
-                  "package_types": package_types,
-                  "price_per_package": price_per_package,
-                  "status": status,
-                  "created_by": created_by
-            }
-            # permissions=[]
-    # Add only non-None fields to the update payload
-    for key, value in form_fields.items():
-        if value is not None:
-            update_data[key] = value
-
     try:
-        # Update the existing document in Appwrite Database
+        previous_doc = db.get_document(
+            database_id=db_id,
+            collection_id=db_collection_id3,
+            document_id=plant_type_id
+        )
+        update_data = {
+                "name": name,
+                "category": category,
+                "is_category": False,
+                "months_to_maturity": months_to_maturity,
+                "image_url": image_url,
+                "status": status,
+            }
         updated_doc = db.update_document(
             database_id=db_id,
             collection_id=db_collection_id3,
             document_id=plant_type_id,
             data=update_data
         )
+        write_audit(
+            action_type="Update",
+            collection_name="Plant types",
+            action_details=f"Updated plant type {name}",
+            previous_data=previous_doc,
+            new_data=update_data
+        )
 
         return {
-            "message": "Crop info updated successfully",
+            "message": "Plant type updated successfully",
             "document_id": updated_doc["$id"],
-            "updated_fields": update_data,
-            "view_url": view_url,
-            "download_url": download_url,
         }
 
     except Exception as e:
-        return {"error": str(e)}
+        raise HTTPException(status_code=500, detail=str(e))
     
 @collection3_router.delete("/plant_type/{plant_type_id}")
 def delete_plant_type(plant_type_id:str):
     try:
+        previous_doc = db.get_document(
+            database_id=db_id,
+            collection_id=db_collection_id3,
+            document_id=plant_type_id
+        )
         db.delete_document(
             database_id=db_id,
             collection_id=db_collection_id3, 
             document_id=plant_type_id)
-        return {"message": f"User with ID {plant_type_id} deleted successfully"}
+        write_audit(
+            action_type="Delete",
+            collection_name="Plant types",
+            action_details=f"Deleted plant type {previous_doc.get('name', plant_type_id)}",
+            previous_data=previous_doc
+        )
+        return {"message": f"Plant type with ID {plant_type_id} deleted successfully"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

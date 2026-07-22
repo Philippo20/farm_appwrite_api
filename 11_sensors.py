@@ -91,6 +91,34 @@ result = db.create_string_attribute(
     required= True
 )
 
+result = db.create_float_attribute(
+    database_id= db_id,
+    collection_id= db_collection_id11,
+    key="range_min", #Lower bound of the calibrated normal operating range.
+    required= False
+)
+
+result = db.create_float_attribute(
+    database_id= db_id,
+    collection_id= db_collection_id11,
+    key="range_max", #Upper bound of the calibrated normal operating range.
+    required= False
+)
+
+result = db.create_float_attribute(
+    database_id= db_id,
+    collection_id= db_collection_id11,
+    key="warning_min", #Lower warning threshold before alert escalation.
+    required= False
+)
+
+result = db.create_float_attribute(
+    database_id= db_id,
+    collection_id= db_collection_id11,
+    key="warning_max", #Upper warning threshold before alert escalation.
+    required= False
+)
+
 result = db.create_datetime_attribute(
     database_id= db_id,
     collection_id= db_collection_id11,

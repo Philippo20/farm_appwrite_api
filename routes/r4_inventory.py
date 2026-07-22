@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Form, HTTPException, status
+from fastapi import APIRouter, Form, HTTPException, status as http_status
 from typing import Annotated
 from enum import Enum
 from datetime import date
@@ -6,6 +6,7 @@ from main import db_id, db_collection_id4
 from db import db
 from appwrite.id import ID
 from appwrite.query import Query
+from audit_utils import write_audit
 
 collection4_router = APIRouter(tags=["Inventory"])
 
@@ -43,8 +44,8 @@ def register_inventory(
     )
     if existing["total"] > 0:
         raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=f"Plant type with name: {item_name} already exist!")
+            status_code=http_status.HTTP_409_CONFLICT,
+            detail=f"Inventory item with name: {item_name} already exists!")
     
 
     inventory_info = {
@@ -71,6 +72,13 @@ def register_inventory(
         collection_id=db_collection_id4,
         document_id=ID.unique(),
         data= inventory_info
+    )
+    write_audit(
+        action_type="Create",
+        collection_name="Inventory",
+        performed_by_id=added_by,
+        action_details=f"Created inventory item {item_name}",
+        new_data=inventory_info
     )
 
     return {
@@ -108,7 +116,7 @@ def get_inventory_info(item_id:str):
         return user
     except Exception as e:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
+            status_code=http_status.HTTP_404_NOT_FOUND,
             detail=str(e))
     
 @collection4_router.put("/inventory/{item_id}")
@@ -130,12 +138,12 @@ def update_inventory(item_id:str,
     ):
 
     try:
-        # Perform update
-        updated_inventory_info = db.update_document(
+        previous_inventory = db.get_document(
             database_id=db_id,
             collection_id=db_collection_id4,
-            document_id=item_id,
-            data={"item_name": item_name,
+            document_id=item_id
+        )
+        update_data = {"item_name": item_name,
                   "item_type": item_type,
                   "unit": unit,
                   "quantity_available": quantity_available,
@@ -149,8 +157,22 @@ def update_inventory(item_id:str,
                   "status": status,
                   "added_by": added_by,        
                   "date_added": date_added.isoformat()
-            },
+            }
+        # Perform update
+        updated_inventory_info = db.update_document(
+            database_id=db_id,
+            collection_id=db_collection_id4,
+            document_id=item_id,
+            data=update_data,
             permissions=[]
+        )
+        write_audit(
+            action_type="Update",
+            collection_name="Inventory",
+            performed_by_id=added_by,
+            action_details=f"Updated inventory item {item_name}",
+            previous_data=previous_inventory,
+            new_data=update_data
         )
         return {"message": "inventory info updated successfully", "user": updated_inventory_info}
 
@@ -160,10 +182,22 @@ def update_inventory(item_id:str,
 @collection4_router.delete("/inventory/{item_id}")
 def delete_inventory(item_id:str):
     try:
+        previous_inventory = db.get_document(
+            database_id=db_id,
+            collection_id=db_collection_id4,
+            document_id=item_id
+        )
         db.delete_document(
             database_id=db_id,
             collection_id=db_collection_id4, 
             document_id=item_id)
-        return {"message": f"User with ID {item_id} deleted successfully"}
+        write_audit(
+            action_type="Delete",
+            collection_name="Inventory",
+            performed_by_id=previous_inventory.get("added_by", "system"),
+            action_details=f"Deleted inventory item {previous_inventory.get('item_name', item_id)}",
+            previous_data=previous_inventory
+        )
+        return {"message": f"Inventory item with ID {item_id} deleted successfully"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

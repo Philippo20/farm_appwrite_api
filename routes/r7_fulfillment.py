@@ -5,6 +5,7 @@ from datetime import datetime, date
 from main import db_id, db_collection_id7
 from db import db
 from appwrite.id import ID
+from audit_utils import write_audit
 
 collection7_router = APIRouter(tags=["Fulfillment"])
 
@@ -14,6 +15,20 @@ class Status(str, Enum):
     PENDING= "Packaged"
     SENT_TO_SALES = "Sent to Sales"
     COMPLETED= "Completed"
+
+class DeliveryStatus(str, Enum):
+    PENDING_APPROVAL = "Pending Approval"
+    SCHEDULED = "Scheduled"
+    IN_TRANSIT = "In Transit"
+    DELIVERED = "Delivered"
+    ON_HOLD = "On Hold"
+    CANCELLED = "Cancelled"
+    REJECTED = "Rejected"
+
+class DeliveryPriority(str, Enum):
+    HIGH = "High"
+    MEDIUM = "Medium"
+    LOW = "Low"
 
 @collection7_router.post("/fulfillment/info")
 def register_fulfillment(
@@ -36,7 +51,14 @@ def register_fulfillment(
         packaging_date_time: Annotated[date, Form(...)],
         sent_to_sales: Annotated[bool, Form()],
         sent_to_sales_date_time: Annotated[date, Form(...)],
-        status: Annotated[Status, Form()]
+        status: Annotated[Status, Form()],
+        delivery_status: Annotated[DeliveryStatus, Form()] = DeliveryStatus.PENDING_APPROVAL,
+        driver_name: Annotated[str, Form()] = "Unassigned",
+        vehicle: Annotated[str, Form()] = "Pending",
+        destination: Annotated[str, Form()] = "Sales Hub",
+        eta: Annotated[str, Form()] = "",
+        priority: Annotated[DeliveryPriority, Form()] = DeliveryPriority.MEDIUM,
+        delivery_note: Annotated[str, Form()] = ""
         ):
     audits_info = {
         "fulfillment_id": ID.unique(),
@@ -59,7 +81,14 @@ def register_fulfillment(
         "packaging_date_time": packaging_date_time.isoformat(),
         "sent_to_sales": sent_to_sales,
         "sent_to_sales_date_time": sent_to_sales_date_time.isoformat(),
-        "status": status
+        "status": status,
+        "delivery_status": delivery_status,
+        "driver_name": driver_name,
+        "vehicle": vehicle,
+        "destination": destination,
+        "eta": eta,
+        "priority": priority,
+        "delivery_note": delivery_note
     }
     print(audits_info)
 
@@ -68,6 +97,14 @@ def register_fulfillment(
         collection_id=db_collection_id7,
         document_id=ID.unique(),
         data= audits_info
+    )
+    write_audit(
+        action_type="Create",
+        collection_name="Fulfillment",
+        performed_by_id=farm_manager_id,
+        performed_by_role="farm_manager",
+        action_details=f"Created fulfillment delivery record for batch {batch_number}",
+        new_data=audits_info
     )
 
     return {
@@ -129,15 +166,22 @@ def update_fulfillment(fulfillment_id:str,
     packaging_date_time: Annotated[date, Form(...)],
     sent_to_sales: Annotated[bool, Form()],
     sent_to_sales_date_time: Annotated[date, Form(...)],
-    status: Annotated[Status, Form()]
+    status: Annotated[Status, Form()],
+    delivery_status: Annotated[DeliveryStatus, Form()] = DeliveryStatus.PENDING_APPROVAL,
+    driver_name: Annotated[str, Form()] = "Unassigned",
+    vehicle: Annotated[str, Form()] = "Pending",
+    destination: Annotated[str, Form()] = "Sales Hub",
+    eta: Annotated[str, Form()] = "",
+    priority: Annotated[DeliveryPriority, Form()] = DeliveryPriority.MEDIUM,
+    delivery_note: Annotated[str, Form()] = ""
     ):
     try:
-        # Perform update
-        updated_farm_info = db.update_document(
+        previous_fulfillment = db.get_document(
             database_id=db_id,
             collection_id=db_collection_id7,
-            document_id=fulfillment_id,
-            data={"batch_number": batch_number,
+            document_id=fulfillment_id
+        )
+        update_data = {"batch_number": batch_number,
                   "farm_manager_id": farm_manager_id,
                   "farm_name": farm_name,
                   "plant_type": plant_type,
@@ -156,9 +200,31 @@ def update_fulfillment(fulfillment_id:str,
                   "packaging_date_time": packaging_date_time.isoformat(),
                   "sent_to_sales": sent_to_sales,
                   "sent_to_sales_date_time": sent_to_sales_date_time.isoformat(),
-                  "status": status
-            },
+                  "status": status,
+                  "delivery_status": delivery_status,
+                  "driver_name": driver_name,
+                  "vehicle": vehicle,
+                  "destination": destination,
+                  "eta": eta,
+                  "priority": priority,
+                  "delivery_note": delivery_note
+            }
+        # Perform update
+        updated_farm_info = db.update_document(
+            database_id=db_id,
+            collection_id=db_collection_id7,
+            document_id=fulfillment_id,
+            data=update_data,
             permissions=[]
+        )
+        write_audit(
+            action_type="Update",
+            collection_name="Fulfillment",
+            performed_by_id=packaging_supervisor_id or farm_manager_id,
+            performed_by_role="fulfillment_manager",
+            action_details=f"Updated fulfillment delivery record for batch {batch_number}",
+            previous_data=previous_fulfillment,
+            new_data=update_data
         )
         return {"message": "Fulfillments info updated successfully", "user": updated_farm_info}
 
@@ -168,10 +234,23 @@ def update_fulfillment(fulfillment_id:str,
 @collection7_router.delete("/fulfillments/{fulfillment_id}")
 def delete_fulfillment(fulfillment_id:str):
     try:
+        previous_fulfillment = db.get_document(
+            database_id=db_id,
+            collection_id=db_collection_id7,
+            document_id=fulfillment_id
+        )
         db.delete_document(
             database_id=db_id,
             collection_id=db_collection_id7, 
             document_id=fulfillment_id)
-        return {"message": f"User with ID {fulfillment_id} deleted successfully"}
+        write_audit(
+            action_type="Delete",
+            collection_name="Fulfillment",
+            performed_by_id=previous_fulfillment.get("farm_manager_id", "system"),
+            performed_by_role="fulfillment_manager",
+            action_details=f"Deleted fulfillment delivery record {previous_fulfillment.get('batch_number', fulfillment_id)}",
+            previous_data=previous_fulfillment
+        )
+        return {"message": f"Delivery with ID {fulfillment_id} deleted successfully"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

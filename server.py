@@ -17,6 +17,9 @@ from routes.r14_logs import collection14_router
 from routes.r15_grow_stages import collection15_router
 from routes.r16_crops import collection16_router
 from routes.r17_pricing import collection17_router
+from routes.r18_system_config import collection18_router
+from routes.r20_inventory_movements import collection20_router
+from routes.r22_fund_requests import collection22_router
 from storage import storage_router
 from auth import auth_router
 from backups import backups_router
@@ -25,7 +28,8 @@ from fastapi.middleware.cors import CORSMiddleware
 app = FastAPI(
     title="Farm Estates Ltd API",
     description="API built using appwrite's db",
-    docs_url="/"
+    docs_url="/",
+    openapi_url="/farmestatesltd",
 )
 # http
 # http://localhost:8080
@@ -45,6 +49,8 @@ app.add_middleware(
 app.include_router(collection1_router)
 app.include_router(collection2_router)
 app.include_router(collection3_router)
+app.include_router(collection20_router)
+app.include_router(collection22_router)
 app.include_router(collection4_router)
 app.include_router(collection5_router)
 app.include_router(collection6_router)
@@ -59,6 +65,7 @@ app.include_router(collection14_router)
 app.include_router(collection15_router)
 app.include_router(collection16_router)
 app.include_router(collection17_router)
+app.include_router(collection18_router)
 app.include_router(storage_router)
 app.include_router(auth_router)
 app.include_router(backups_router)

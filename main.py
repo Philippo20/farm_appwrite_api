@@ -27,6 +27,11 @@ db_collection_id14 = os.getenv("APPWRITE_COLLECTION_ID14")
 db_collection_id15 = os.getenv("APPWRITE_COLLECTION_ID15")
 db_collection_id16 = os.getenv("APPWRITE_COLLECTION_ID16")
 db_collection_id17 = os.getenv("APPWRITE_COLLECTION_ID17")
+db_collection_id18 = os.getenv("APPWRITE_COLLECTION_ID18")
+db_collection_id19 = os.getenv("APPWRITE_COLLECTION_ID19")
+db_collection_id20 = os.getenv("APPWRITE_COLLECTION_ID20")
+db_collection_id21 = os.getenv("APPWRITE_COLLECTION_ID21")
+db_collection_id22 = os.getenv("APPWRITE_COLLECTION_ID22", "fund_requests")
 
 client = Client()
 

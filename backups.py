@@ -4,13 +4,16 @@ import json
 import tempfile
 import datetime
 from typing import List, Optional
-from fastapi import FastAPI, HTTPException, UploadFile, File, BackgroundTasks, APIRouter
+from fastapi import FastAPI, HTTPException, UploadFile, File, BackgroundTasks, APIRouter, Body
 from pydantic import BaseModel
 from dotenv import load_dotenv
 from appwrite.client import Client
 from appwrite.services.databases import Databases
 from appwrite.services.storage import Storage
 from appwrite.id import ID
+from appwrite.input_file import InputFile
+from appwrite.query import Query
+from audit_utils import write_audit
 
 # Optional scheduler for auto backups
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -20,7 +23,12 @@ load_dotenv()
 APPWRITE_ENDPOINT = os.getenv("APPWRITE_ENDPOINT")
 APPWRITE_PROJECT_ID = os.getenv("APPWRITE_PROJECT_ID")
 APPWRITE_API_KEY = os.getenv("APPWRITE_API_KEY")
-BACKUPS_COLLECTION_ID = os.getenv("BACKUPS_COLLECTION_ID", "backups_collection_id")
+APPWRITE_DB_ID = os.getenv("APPWRITE_DB_ID") or os.getenv("APPWRITE_DATABASE_ID")
+BACKUPS_COLLECTION_ID = (
+    os.getenv("BACKUPS_COLLECTION_ID")
+    or os.getenv("APPWRITE_COLLECTION_ID19")
+    or "backups"
+)
 APPWRITE_BUCKET_ID = os.getenv("APPWRITE_BUCKET_ID", "backups_bucket_id")
 
 if not (APPWRITE_ENDPOINT and APPWRITE_PROJECT_ID and APPWRITE_API_KEY):
@@ -52,14 +60,9 @@ def list_collections():
     # Databases.list_collections exists in some SDK versions; fallback: list by database
     # We assume one database for simplicity: use default DB id from env or fetch list
     # Here we call databases.list_collections for DATABASE_ID from env if provided
-    db_id = os.getenv("APPWRITE_DATABASE_ID")
+    db_id = APPWRITE_DB_ID
     if not db_id:
-        # try to list databases and pick the first
-        db_list = db.list_documents(database_id=db_id, collection_id=BACKUPS_COLLECTION_ID).get("databases", [])
-        ().get("databases", [])
-        if not db_list:
-            raise RuntimeError("No databases found in Appwrite project")
-        db_id = db_list[0]["$id"]
+        raise RuntimeError("APPWRITE_DB_ID is not configured")
     collections = db.list_collections(database_id=db_id).get("collections", [])
     return db_id, collections
 
@@ -70,7 +73,11 @@ def export_collection_to_json(database_id: str, collection_id: str) -> bytes:
     offset = 0
     rows = []
     while True:
-        resp = db.list_documents(database_id=database_id, collection_id=collection_id, limit=limit, offset=offset)
+        resp = db.list_documents(
+            database_id=database_id,
+            collection_id=collection_id,
+            queries=[Query.limit(limit), Query.offset(offset)]
+        )
         docs = resp.get("documents", []) or resp.get("rows", [])
         if not docs:
             break
@@ -82,19 +89,10 @@ def export_collection_to_json(database_id: str, collection_id: str) -> bytes:
 
 def upload_backup_file(content: bytes, filename: str, content_type: str = "application/json"):
     """Upload bytes to Appwrite storage and return file record."""
-    # We upload using create_file -- some SDK versions use create_file; adapt if needed.
-    # Use a temp file-like object
-    fd = io.BytesIO(content)
-    fd.seek(0)
-    # Storage.create_file expects a file-like with .read(); using ID.unique() as fileId
-    file_id = ID.unique()
-    # appwrite Storage.create_file parameters may vary by SDK; using create_file for v1.x pattern
     result = storage.create_file(
         bucket_id=APPWRITE_BUCKET_ID,
-        file_id=file_id,
-        file=fd,
-        filename=filename,
-        content_type=content_type
+        file_id=ID.unique(),
+        file=InputFile.from_bytes(content, filename=filename)
     )
     return result
 
@@ -107,10 +105,17 @@ def record_backup_metadata(file_rec: dict, collections_exported: List[str], note
         "size_bytes": size_bytes,
         "collections": collections_exported,
         "created_at": datetime.datetime.utcnow().isoformat(),
-        "notes": notes or ""
+        "notes": notes or "",
+        "backup_type": "Automated" if notes == "auto-scheduled" else "Manual",
+        "status": "Verified",
+        "scope": "global",
+        "farm": "Global Platform",
+        "retention_days": 90,
     }
     # store in backups collection (DATABASE_ID required)
-    db_id = os.getenv("APPWRITE_DATABASE_ID") or db.list_documents(database_id=db_id, collection_id=BACKUPS_COLLECTION_ID).get("databases", [])[0]["$id"]
+    db_id = APPWRITE_DB_ID
+    if not db_id:
+        raise RuntimeError("APPWRITE_DB_ID is not configured")
     rec = db.create_document(database_id=db_id, collection_id=BACKUPS_COLLECTION_ID, document_id=ID.unique(), data=data)
     return rec
 
@@ -133,6 +138,11 @@ class BackupItem(BaseModel):
     collections: List[str]
     created_at: str
     notes: Optional[str]
+    backup_type: Optional[str] = "Manual"
+    status: Optional[str] = "Verified"
+    scope: Optional[str] = "global"
+    farm: Optional[str] = "Global Platform"
+    retention_days: Optional[int] = 90
 
 
 @backups_router.post("/backups/create", response_model=BackupCreateResponse)
@@ -162,6 +172,17 @@ def create_backup(background: BackgroundTasks, notes: Optional[str] = None):
 
         # record metadata
         rec = record_backup_metadata(file_rec, exported_collections, notes=notes)
+        write_audit(
+            action_type="Create",
+            collection_name="Backups",
+            action_details=f"Created backup {file_rec.get('name') or file_rec.get('filename')}",
+            new_data={
+                "backup_id": rec["$id"],
+                "file_id": file_rec["$id"],
+                "collections": exported_collections,
+                "notes": notes or "",
+            }
+        )
         return BackupCreateResponse(
             backup_id=rec["$id"],
             file_id=file_rec["$id"],
@@ -177,8 +198,14 @@ def create_backup(background: BackgroundTasks, notes: Optional[str] = None):
 def list_backups(limit: int = 50, offset: int = 0):
     """List backup metadata rows from backups collection."""
     try:
-        db_id = os.getenv("APPWRITE_DATABASE_ID") or db.list_documents(database_id=db_id, collection_id=BACKUPS_COLLECTION_ID).get("databases", [])[0]["$id"]
-        res = db.list_documents(database_id=db_id, collection_id=BACKUPS_COLLECTION_ID, limit=limit, offset=offset)
+        db_id = APPWRITE_DB_ID
+        if not db_id:
+            raise RuntimeError("APPWRITE_DB_ID is not configured")
+        res = db.list_documents(
+            database_id=db_id,
+            collection_id=BACKUPS_COLLECTION_ID,
+            queries=[Query.limit(limit), Query.offset(offset)]
+        )
         docs = res.get("documents", []) or res.get("rows", [])
         items = []
         for d in docs:
@@ -189,7 +216,12 @@ def list_backups(limit: int = 50, offset: int = 0):
                 size_bytes=int(d.get("size_bytes", 0)),
                 collections=d.get("collections", []),
                 created_at=d.get("created_at"),
-                notes=d.get("notes", "")
+                notes=d.get("notes", ""),
+                backup_type=d.get("backup_type", "Manual"),
+                status=d.get("status", "Verified"),
+                scope=d.get("scope", "global"),
+                farm=d.get("farm", "Global Platform"),
+                retention_days=int(d.get("retention_days", 90) or 90)
             ))
         return items
     except Exception as e:
@@ -200,12 +232,90 @@ def list_backups(limit: int = 50, offset: int = 0):
 def download_backup(backup_id: str):
     """Return a download URL or redirect for stored backup file."""
     try:
-        db_id = os.getenv("APPWRITE_DATABASE_ID") or db.list_documents(database_id=db_id, collection_id=BACKUPS_COLLECTION_ID).get("databases", [])[0]["$id"]
+        db_id = APPWRITE_DB_ID
+        if not db_id:
+            raise RuntimeError("APPWRITE_DB_ID is not configured")
         rec = db.get_document(database_id=db_id, collection_id=BACKUPS_COLLECTION_ID, document_id=backup_id)
         file_id = rec["file_id"]
-        # Get file download URL from storage (SDK may provide get_file_download)
-        file_info = storage.get_file_download(bucket_id=APPWRITE_BUCKET_ID, file_id=file_id)
-        return {"download_url": file_info.get("href") or file_info}
+        download_url = (
+            f"{APPWRITE_ENDPOINT}/storage/buckets/{APPWRITE_BUCKET_ID}"
+            f"/files/{file_id}/download?project={APPWRITE_PROJECT_ID}"
+        )
+        return {"download_url": download_url}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@backups_router.delete("/backups/{backup_id}")
+def delete_backup(backup_id: str):
+    """Delete a backup file and its metadata record."""
+    try:
+        db_id = APPWRITE_DB_ID
+        if not db_id:
+            raise RuntimeError("APPWRITE_DB_ID is not configured")
+
+        previous_backup = db.get_document(
+            database_id=db_id,
+            collection_id=BACKUPS_COLLECTION_ID,
+            document_id=backup_id
+        )
+        file_id = previous_backup.get("file_id")
+        if file_id:
+            try:
+                storage.delete_file(bucket_id=APPWRITE_BUCKET_ID, file_id=file_id)
+            except Exception:
+                # Keep deleting metadata even if the storage file is already missing.
+                pass
+
+        db.delete_document(
+            database_id=db_id,
+            collection_id=BACKUPS_COLLECTION_ID,
+            document_id=backup_id
+        )
+        write_audit(
+            action_type="Delete",
+            collection_name="Backups",
+            action_details=f"Deleted backup {previous_backup.get('file_name', backup_id)}",
+            previous_data=previous_backup
+        )
+        return {"message": "Backup deleted successfully"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@backups_router.patch("/backups/{backup_id}/retention")
+def update_backup_retention(backup_id: str, payload: dict = Body(...)):
+    """Update retention days for a backup metadata record."""
+    try:
+        retention_days = int(payload.get("retention_days", 90))
+        if retention_days < 1 or retention_days > 3650:
+            raise HTTPException(400, "Retention days must be between 1 and 3650")
+
+        db_id = APPWRITE_DB_ID
+        if not db_id:
+            raise RuntimeError("APPWRITE_DB_ID is not configured")
+
+        previous_backup = db.get_document(
+            database_id=db_id,
+            collection_id=BACKUPS_COLLECTION_ID,
+            document_id=backup_id
+        )
+        updated_backup = db.update_document(
+            database_id=db_id,
+            collection_id=BACKUPS_COLLECTION_ID,
+            document_id=backup_id,
+            data={"retention_days": retention_days}
+        )
+        write_audit(
+            action_type="Update",
+            collection_name="Backups",
+            action_details=f"Updated backup retention to {retention_days} days",
+            previous_data=previous_backup,
+            new_data={"retention_days": retention_days}
+        )
+        return {"message": "Backup retention updated successfully", "backup": updated_backup}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -235,7 +345,11 @@ def restore_backup(file: UploadFile = File(...), replace_collections: bool = Tru
                 limit = 100
                 offset = 0
                 while True:
-                    resp = db.list_documents(database_id=db_id, collection_id=col_id, limit=limit, offset=offset)
+                    resp = db.list_documents(
+                        database_id=db_id,
+                        collection_id=col_id,
+                        queries=[Query.limit(limit), Query.offset(offset)]
+                    )
                     existing = resp.get("documents", []) or resp.get("rows", [])
                     if not existing:
                         break
@@ -252,6 +366,16 @@ def restore_backup(file: UploadFile = File(...), replace_collections: bool = Tru
                 # create_document requires unique id param; we let Appwrite create new id
                 db.create_document(database_id=db_id, collection_id=col_id, document_id=ID.unique(), data=doc_copy)
 
+        write_audit(
+            action_type="Update",
+            collection_name="Backups",
+            action_details=f"Restored backup file {file.filename}",
+            new_data={
+                "file_name": file.filename,
+                "replace_collections": replace_collections,
+                "collections": list(payload.keys()),
+            }
+        )
         return {"message": "Restore completed successfully"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -261,8 +385,14 @@ def restore_backup(file: UploadFile = File(...), replace_collections: bool = Tru
 def backup_stats():
     """Return total backups, total size, last backup date."""
     try:
-        db_id = os.getenv("APPWRITE_DB_ID") or db.list_documents(database_id=db_id, collection_id=BACKUPS_COLLECTION_ID).get("databases", [])[0]["$id"]
-        res = db.list_documents(database_id=db_id, collection_id=BACKUPS_COLLECTION_ID, limit=1000)
+        db_id = APPWRITE_DB_ID
+        if not db_id:
+            raise RuntimeError("APPWRITE_DB_ID is not configured")
+        res = db.list_documents(
+            database_id=db_id,
+            collection_id=BACKUPS_COLLECTION_ID,
+            queries=[Query.limit(1000)]
+        )
         docs = res.get("documents", []) or res.get("rows", [])
         total = len(docs)
         total_size = sum(int(d.get("size_bytes", 0) or 0) for d in docs)
@@ -290,13 +420,16 @@ def toggle_auto_backup(enable: bool):
     """
     # Simple approach: store in backups collection a single row with key
     try:
-        db_id = os.getenv("APPWRITE_DATABASE_ID") or db.list_documents(database_id=db_id, collection_id=BACKUPS_COLLECTION_ID).get("databases", [])[0]["$id"]
+        db_id = APPWRITE_DB_ID
+        if not db_id:
+            raise RuntimeError("APPWRITE_DB_ID is not configured")
         # For simplicity, store as document with id AUTO_BACKUP_ENABLED_KEY (create or update)
         try:
             conf = db.get_document(database_id=db_id, collection_id=BACKUPS_COLLECTION_ID, document_id=AUTO_BACKUP_ENABLED_KEY)
             db.update_document(database_id=db_id, collection_id=BACKUPS_COLLECTION_ID, document_id=AUTO_BACKUP_ENABLED_KEY, data={"auto_enabled": enable})
         except Exception:
             # create config document
+            conf = None
             db.create_document(database_id=db_id, collection_id=BACKUPS_COLLECTION_ID, document_id=AUTO_BACKUP_ENABLED_KEY, data={"auto_enabled": enable})
 
         # Scheduler control: simple cron - every day at 02:00 UTC
@@ -307,6 +440,13 @@ def toggle_auto_backup(enable: bool):
         else:
             if scheduler.get_job("auto_backup_job"):
                 scheduler.remove_job("auto_backup_job")
+        write_audit(
+            action_type="Update",
+            collection_name="System Config",
+            action_details=f"Set auto backup to {enable}",
+            previous_data=conf,
+            new_data={"auto_enabled": enable}
+        )
         return {"auto_backup": enable}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

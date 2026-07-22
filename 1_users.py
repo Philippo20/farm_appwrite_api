@@ -45,8 +45,17 @@ result = db.create_enum_attribute(
     database_id= db_id,
     collection_id= db_collection_id1,
     key="role",
-        elements=["superadmin", "farm_manager", "farm_owner", "caretaker", "technician", "fulfillment_manager", "packaging_supervisor", "quality_officer", "sales_manager", "sales_person", "accountant"],
+        elements=["superadmin", "admin", "farm_manager", "farm_owner", "caretaker", "technician", "fulfillment_manager", "packaging_supervisor", "quality_officer", "sales_manager", "sales_person", "accountant", "driver"],
     required= True
+)
+
+result = db.create_enum_attribute(
+    database_id= db_id,
+    collection_id= db_collection_id1,
+    key="status",
+    elements=["Active", "Pending", "Suspended"],
+    required=False,
+    default="Active"
 )
 
 result = db.create_string_attribute(

@@ -5,6 +5,7 @@ from datetime import datetime, date
 from main import db_id, db_collection_id9
 from db import db
 from appwrite.id import ID
+from audit_utils import write_audit
 
 collection9_router = APIRouter(tags=["Package"])
 
@@ -25,7 +26,7 @@ def register_package(
         quantity_available: Annotated[float, Form()],
         cost_per_unit: Annotated[float, Form()],
         created_by: Annotated[str, Form()],
-        created_at: Annotated[date, Form(...)],
+        created_at: Annotated[datetime, Form(...)],
         updated_at: Annotated[datetime, Form(...)],
         status: Annotated[Status, Form()]
         ):
@@ -51,6 +52,13 @@ def register_package(
         collection_id=db_collection_id9,
         document_id=ID.unique(),
         data= package_info
+    )
+    write_audit(
+        action_type="Create",
+        collection_name="Package",
+        performed_by_id=created_by,
+        action_details=f"Created package {package_name}",
+        new_data=package_info
     )
 
     return {
@@ -102,17 +110,17 @@ def update_package(package_id:str,
     quantity_available: Annotated[float, Form()],
     cost_per_unit: Annotated[float, Form()],
     created_by: Annotated[str, Form()],
-    created_at: Annotated[date, Form(...)],
+    created_at: Annotated[datetime, Form(...)],
     updated_at: Annotated[datetime, Form(...)],
     status: Annotated[Status, Form()]
     ):
     try:
-        # Perform update
-        updated_package_info = db.update_document(
+        previous_package = db.get_document(
             database_id=db_id,
             collection_id=db_collection_id9,
-            document_id=package_id,
-            data={
+            document_id=package_id
+        )
+        update_data = {
                   "package_name": package_name,
                   "plant_type_id": plant_type_id,
                   "plant_type_name": plant_type_name,
@@ -125,8 +133,22 @@ def update_package(package_id:str,
                   "created_at": created_at.isoformat(),
                   "updated_at": updated_at.isoformat(),
                   "status": status
-            },
+            }
+        # Perform update
+        updated_package_info = db.update_document(
+            database_id=db_id,
+            collection_id=db_collection_id9,
+            document_id=package_id,
+            data=update_data,
             permissions=[]
+        )
+        write_audit(
+            action_type="Update",
+            collection_name="Package",
+            performed_by_id=created_by,
+            action_details=f"Updated package {package_name}",
+            previous_data=previous_package,
+            new_data=update_data
         )
         return {"message": "Package info updated successfully", "user": updated_package_info}
 
@@ -136,10 +158,22 @@ def update_package(package_id:str,
 @collection9_router.delete("/package/{package_id}")
 def delete_package(package_id:str):
     try:
+        previous_package = db.get_document(
+            database_id=db_id,
+            collection_id=db_collection_id9,
+            document_id=package_id
+        )
         db.delete_document(
             database_id=db_id,
             collection_id=db_collection_id9, 
             document_id=package_id)
+        write_audit(
+            action_type="Delete",
+            collection_name="Package",
+            performed_by_id=previous_package.get("created_by", "system"),
+            action_details=f"Deleted package {previous_package.get('package_name', package_id)}",
+            previous_data=previous_package
+        )
         return {"message": f"User with ID {package_id} deleted successfully"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

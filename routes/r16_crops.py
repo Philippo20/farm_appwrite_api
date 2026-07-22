@@ -6,9 +6,40 @@ from db import db
 from appwrite.id import ID
 from appwrite.input_file import InputFile
 from storage import st
+from audit_utils import write_audit
 
 
 collection16_router = APIRouter(tags=["Crops"])
+
+
+def _storage_view_url(file_id: str) -> str:
+    return f"{appwrite_endpoint}/storage/buckets/{bucket_id}/files/{file_id}/view?project={project_id}"
+
+
+def _storage_download_url(file_id: str) -> str:
+    return f"{appwrite_endpoint}/storage/buckets/{bucket_id}/files/{file_id}/download?project={project_id}"
+
+
+def _resolve_image_urls(doc: dict) -> dict:
+    if doc.get("crop_image_url"):
+        return doc
+
+    file_id = doc.get("crop_image_file_id")
+    if not file_id and doc.get("crop_image"):
+        try:
+            files = st.list_files(bucket_id=bucket_id).get("files", [])
+            for file in files:
+                if file.get("name") == doc.get("crop_image"):
+                    file_id = file.get("$id")
+                    break
+        except Exception:
+            file_id = None
+
+    if file_id:
+        doc["crop_image_file_id"] = file_id
+        doc["crop_image_url"] = _storage_view_url(file_id)
+        doc["crop_image_download_url"] = _storage_download_url(file_id)
+    return doc
    
 @collection16_router.post("/crops/info")
 async def register_crops_info(
@@ -42,32 +73,54 @@ async def register_crops_info(
         file_id = uploaded_file["$id"]
 
         # Generate file URLs
-        view_url = f"{appwrite_endpoint}/storage/buckets/{bucket_id}/files/{file_id}/view?project={project_id}"
-        download_url = f"{appwrite_endpoint}/storage/buckets/{bucket_id}/files/{file_id}/download?project={project_id}"
+        view_url = _storage_view_url(file_id)
+        download_url = _storage_download_url(file_id)
 
-        # Save URLs to Appwrite Database
-        saved_doc = db.create_document(
-            database_id=db_id,
-            collection_id=db_collection_id16,
-            document_id=ID.unique(),
-            data={
-                "crop_image": crop_image.filename,
-                "crop_name": crop_name,
-                "variety_name": variety_name,
-                "plant_duration": plant_duration,
-                "harvesting_weight": harvesting_weight,
-                "company": company,
-                "sprouting_ratio": sprouting_ratio,
-                "ec_level_min": ec_level_min,
-                "ec_level_max": ec_level_max,
-                "ph_level_min": ph_level_min,
-                "ph_level_max": ph_level_max,
-                "temp_min": temp_min,
-                "temp_max": temp_max,
-                "humidity_min": humidity_min,
-                "humidity_max": humidity_max,
-                "created_by": created_by
-            }
+        crop_data = {
+            "crop_image": crop_image.filename,
+            "crop_image_file_id": file_id,
+            "crop_image_url": view_url,
+            "crop_image_download_url": download_url,
+            "crop_name": crop_name,
+            "variety_name": variety_name,
+            "plant_duration": plant_duration,
+            "harvesting_weight": harvesting_weight,
+            "company": company,
+            "sprouting_ratio": sprouting_ratio,
+            "ec_level_min": ec_level_min,
+            "ec_level_max": ec_level_max,
+            "ph_level_min": ph_level_min,
+            "ph_level_max": ph_level_max,
+            "temp_min": temp_min,
+            "temp_max": temp_max,
+            "humidity_min": humidity_min,
+            "humidity_max": humidity_max,
+            "created_by": created_by
+        }
+
+        try:
+            saved_doc = db.create_document(
+                database_id=db_id,
+                collection_id=db_collection_id16,
+                document_id=ID.unique(),
+                data=crop_data
+            )
+        except Exception:
+            crop_data.pop("crop_image_file_id", None)
+            crop_data.pop("crop_image_url", None)
+            crop_data.pop("crop_image_download_url", None)
+            saved_doc = db.create_document(
+                database_id=db_id,
+                collection_id=db_collection_id16,
+                document_id=ID.unique(),
+                data=crop_data
+            )
+        write_audit(
+            action_type="Create",
+            collection_name="Crops",
+            performed_by_id=created_by,
+            action_details=f"Created crop variety {crop_name} - {variety_name}",
+            new_data=crop_data
         )
 
         return {
@@ -90,7 +143,7 @@ def get_all_crops():
         )
 
         # Extract the list of users
-        crop_users = result["documents"]
+        crop_users = [_resolve_image_urls(dict(doc)) for doc in result["documents"]]
 
         return {
             "count": len(crop_users),
@@ -135,6 +188,8 @@ async def update_crops_info(
     created_by: Annotated[str, Form(...)]= None
 ):
     update_data = {}
+    view_url = None
+    download_url = None
 
     # If a new image is uploaded, replace the old one
     if crop_image:
@@ -146,15 +201,15 @@ async def update_crops_info(
         )
 
         file_id = uploaded_file["$id"]
-        view_url = f"{appwrite_endpoint}/storage/buckets/{bucket_id}/files/{file_id}/view?project={project_id}"
-        download_url = f"{appwrite_endpoint}/storage/buckets/{bucket_id}/files/{file_id}/download?project={project_id}"
+        view_url = _storage_view_url(file_id)
+        download_url = _storage_download_url(file_id)
 
-        # update_data["crop_image"] = view_url
-        # update_data["download_url"] = download_url
+        update_data["crop_image_file_id"] = file_id
+        update_data["crop_image_url"] = view_url
+        update_data["crop_image_download_url"] = download_url
 
     # Only include fields that were actually provided
     form_fields = {
-        "crop_image": crop_image.filename,
         "crop_name": crop_name,
         "variety_name": variety_name,
         "plant_duration": plant_duration,
@@ -171,6 +226,8 @@ async def update_crops_info(
         "humidity_max": humidity_max,
         "created_by": created_by
     }
+    if crop_image:
+        form_fields["crop_image"] = crop_image.filename
 
     # Add only non-None fields to the update payload
     for key, value in form_fields.items():
@@ -178,12 +235,25 @@ async def update_crops_info(
             update_data[key] = value
 
     try:
+        previous_crop = db.get_document(
+            database_id=db_id,
+            collection_id=db_collection_id16,
+            document_id=document_id
+        )
         # Update the existing document in Appwrite Database
         updated_doc = db.update_document(
             database_id=db_id,
             collection_id=db_collection_id16,
             document_id=document_id,
             data=update_data
+        )
+        write_audit(
+            action_type="Update",
+            collection_name="Crops",
+            performed_by_id=created_by or previous_crop.get("created_by", "system"),
+            action_details=f"Updated crop variety {update_data.get('crop_name', previous_crop.get('crop_name', document_id))}",
+            previous_data=previous_crop,
+            new_data=update_data
         )
 
         return {
@@ -200,10 +270,22 @@ async def update_crops_info(
 @collection16_router.delete("/crops/{crops_id}")
 def delete_crop(crops_id:str):
     try:
+        previous_crop = db.get_document(
+            database_id=db_id,
+            collection_id=db_collection_id16,
+            document_id=crops_id
+        )
         db.delete_document(
             database_id=db_id,
             collection_id=db_collection_id16, 
             document_id=crops_id)
+        write_audit(
+            action_type="Delete",
+            collection_name="Crops",
+            performed_by_id=previous_crop.get("created_by", "system"),
+            action_details=f"Deleted crop variety {previous_crop.get('crop_name', crops_id)}",
+            previous_data=previous_crop
+        )
         return {"message": f"User with ID {crops_id} deleted successfully"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

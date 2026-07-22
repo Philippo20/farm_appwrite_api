@@ -42,7 +42,7 @@ result = db.create_enum_attribute(
     database_id= db_id,
     collection_id= db_collection_id6,
     key="performed_by_role",
-    elements=["superadmin", "farm_manager", "farm_owner", "caretaker", "fulfillment_manager", "packaging_supervisor", "quality_officer", "sales_manager", "sales_person", "accountant"],
+    elements=["superadmin", "admin", "farm_manager", "farm_owner", "caretaker", "technician", "fulfillment_manager", "packaging_supervisor", "quality_officer", "sales_manager", "sales_person", "accountant"],
     required= True
 )
 
