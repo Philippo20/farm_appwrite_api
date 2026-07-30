@@ -26,7 +26,23 @@ const collectionSpecs = [
   { index: 20, file: '20_inventory_movements.py', name: 'Inventory Movements' },
   { index: 21, file: '21_sensor_readings.py', name: 'Sensor Readings' },
   { index: 22, file: '22_fund_requests.py', name: 'Fund Requests' },
+  { index: 23, file: '23_farm_tasks.py', name: 'Farm Tasks' },
+  { index: 25, file: '25_notifications.py', name: 'Notifications' },
+  { index: 26, file: '26_input_confirmations.py', name: 'Input confirmations' },
+  { index: 27, file: '27_caretaker_settings.py', name: 'Caretaker settings' },
 ];
+
+function selectedCollectionSpecs() {
+  const onlyArg = process.argv.find((arg) => arg.startsWith('--only='));
+  if (!onlyArg) return collectionSpecs;
+  const indexes = onlyArg
+    .slice('--only='.length)
+    .split(',')
+    .map((item) => Number(item.trim()))
+    .filter((item) => Number.isInteger(item));
+  if (indexes.length === 0) throw new Error('Use --only with collection numbers, for example --only=7');
+  return collectionSpecs.filter((spec) => indexes.includes(spec.index));
+}
 
 function readEnv() {
   const envPath = path.join(root, '.env');
@@ -226,7 +242,7 @@ async function main() {
   process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
 
   if (process.argv.includes('--dry-run')) {
-    const dryRun = collectionSpecs.map((spec) => ({
+    const dryRun = selectedCollectionSpecs().map((spec) => ({
       collection: spec.name,
       collectionId: env[`APPWRITE_COLLECTION_ID${spec.index}`] || null,
       schemaFile: spec.file,
@@ -260,7 +276,7 @@ async function main() {
     report.database = 'created';
   }
 
-  for (const spec of collectionSpecs) {
+  for (const spec of selectedCollectionSpecs()) {
     const collectionId = env[`APPWRITE_COLLECTION_ID${spec.index}`];
     if (!collectionId) {
       report.skipped.push(`${spec.name}: missing APPWRITE_COLLECTION_ID${spec.index}`);

@@ -145,6 +145,74 @@ def get_user(user_id:str):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="User not found!")
+
+
+@collection1_router.patch("/users/{user_id}/profile")
+def update_user_profile(
+    user_id: str,
+    name: Annotated[str, Form()],
+    email: Annotated[EmailStr, Form()],
+    address: Annotated[str, Form()] = "",
+):
+    try:
+        previous_user = db.get_document(
+            database_id=db_id, collection_id=db_collection_id1, document_id=user_id
+        )
+        update_data = {"name": name.strip(), "email": str(email), "address": address.strip()}
+        updated_user = db.update_document(
+            database_id=db_id,
+            collection_id=db_collection_id1,
+            document_id=user_id,
+            data=update_data,
+            permissions=[],
+        )
+        try:
+            auth_users.update_name(user_id=user_id, name=name.strip())
+            auth_users.update_email(user_id=user_id, email=str(email))
+        except Exception:
+            pass
+        write_audit(
+            action_type="Update",
+            collection_name="Users",
+            performed_by_id=user_id,
+            performed_by_role=previous_user.get("role", "caretaker"),
+            action_details="Updated caretaker profile",
+            previous_data=previous_user,
+            new_data=update_data,
+        )
+        return {"message": "Profile updated successfully", "user": updated_user}
+    except Exception as error:
+        raise HTTPException(status_code=500, detail=str(error))
+
+
+@collection1_router.patch("/users/{user_id}/password")
+def update_user_password(user_id: str, password: Annotated[str, Form()]):
+    if len(password) < 8:
+        raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
+    try:
+        previous_user = db.get_document(
+            database_id=db_id, collection_id=db_collection_id1, document_id=user_id
+        )
+        auth_users.update_password(user_id=user_id, password=password)
+        updated_user = db.update_document(
+            database_id=db_id,
+            collection_id=db_collection_id1,
+            document_id=user_id,
+            data={"password": password},
+            permissions=[],
+        )
+        write_audit(
+            action_type="Update",
+            collection_name="Users",
+            performed_by_id=user_id,
+            performed_by_role=previous_user.get("role", "caretaker"),
+            action_details="Updated account password",
+            previous_data={"password": "***"},
+            new_data={"password": "***"},
+        )
+        return {"message": "Password updated successfully", "user": updated_user}
+    except Exception as error:
+        raise HTTPException(status_code=500, detail=str(error))
     
 @collection1_router.put("/users/{user_id}")
 def update_user(

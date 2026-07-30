@@ -167,7 +167,7 @@ result = db.create_enum_attribute(
     database_id= db_id,
     collection_id= db_collection_id7,
     key="delivery_status",
-    elements=["Pending Approval", "Scheduled", "In Transit", "Delivered", "On Hold", "Cancelled", "Rejected"],
+    elements=["Pending Approval", "Pending Pickup", "Scheduled", "In Transit", "Delivered", "On Hold", "Cancelled", "Rejected"],
     required= False,
     default="Pending Approval"
 )
@@ -202,10 +202,35 @@ result = db.create_string_attribute(
 result = db.create_string_attribute(
     database_id= db_id,
     collection_id= db_collection_id7,
+    key="address",
+    size= 500,
+    required= False,
+    default=""
+)
+
+result = db.create_datetime_attribute(
+    database_id= db_id,
+    collection_id= db_collection_id7,
+    key="scheduled_date",
+    required= False
+)
+
+result = db.create_string_attribute(
+    database_id= db_id,
+    collection_id= db_collection_id7,
     key="eta",
     size= 225,
     required= False,
     default=""
+)
+
+result = db.create_string_attribute(
+    database_id= db_id,
+    collection_id= db_collection_id7,
+    key="temperature",
+    size= 50,
+    required= False,
+    default="N/A"
 )
 
 result = db.create_enum_attribute(

@@ -18,6 +18,7 @@ class Status(str, Enum):
 
 class DeliveryStatus(str, Enum):
     PENDING_APPROVAL = "Pending Approval"
+    PENDING_PICKUP = "Pending Pickup"
     SCHEDULED = "Scheduled"
     IN_TRANSIT = "In Transit"
     DELIVERED = "Delivered"
@@ -56,7 +57,10 @@ def register_fulfillment(
         driver_name: Annotated[str, Form()] = "Unassigned",
         vehicle: Annotated[str, Form()] = "Pending",
         destination: Annotated[str, Form()] = "Sales Hub",
+        address: Annotated[str, Form()] = "",
+        scheduled_date: Annotated[date | None, Form()] = None,
         eta: Annotated[str, Form()] = "",
+        temperature: Annotated[str, Form()] = "N/A",
         priority: Annotated[DeliveryPriority, Form()] = DeliveryPriority.MEDIUM,
         delivery_note: Annotated[str, Form()] = ""
         ):
@@ -86,10 +90,15 @@ def register_fulfillment(
         "driver_name": driver_name,
         "vehicle": vehicle,
         "destination": destination,
+        "address": address,
+        "scheduled_date": scheduled_date.isoformat() if scheduled_date else None,
         "eta": eta,
+        "temperature": temperature,
         "priority": priority,
         "delivery_note": delivery_note
     }
+    if audits_info["scheduled_date"] is None:
+        audits_info.pop("scheduled_date")
     print(audits_info)
 
     fulfillment_create = db.create_document(
@@ -171,7 +180,10 @@ def update_fulfillment(fulfillment_id:str,
     driver_name: Annotated[str, Form()] = "Unassigned",
     vehicle: Annotated[str, Form()] = "Pending",
     destination: Annotated[str, Form()] = "Sales Hub",
+    address: Annotated[str, Form()] = "",
+    scheduled_date: Annotated[date | None, Form()] = None,
     eta: Annotated[str, Form()] = "",
+    temperature: Annotated[str, Form()] = "N/A",
     priority: Annotated[DeliveryPriority, Form()] = DeliveryPriority.MEDIUM,
     delivery_note: Annotated[str, Form()] = ""
     ):
@@ -205,10 +217,15 @@ def update_fulfillment(fulfillment_id:str,
                   "driver_name": driver_name,
                   "vehicle": vehicle,
                   "destination": destination,
+                  "address": address,
+                  "scheduled_date": scheduled_date.isoformat() if scheduled_date else None,
                   "eta": eta,
+                  "temperature": temperature,
                   "priority": priority,
                   "delivery_note": delivery_note
             }
+        if update_data["scheduled_date"] is None:
+            update_data.pop("scheduled_date")
         # Perform update
         updated_farm_info = db.update_document(
             database_id=db_id,

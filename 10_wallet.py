@@ -72,7 +72,7 @@ result = db.create_string_attribute(
     key="transaction_id",
     size= 225,
     required= False
-) 
+)
 
 result = db.create_enum_attribute(
     database_id= db_id,
@@ -88,4 +88,115 @@ result = db.create_string_attribute(
     key="created_by",
     size= 225,
     required= True
+)
+
+result = db.create_enum_attribute(
+    database_id= db_id,
+    collection_id= db_collection_id10,
+    key="transaction_type",
+    elements=["Balance", "Credit", "Debit", "Withdrawal", "Payout Account"],
+    required= False
+)
+
+result = db.create_enum_attribute(
+    database_id= db_id,
+    collection_id= db_collection_id10,
+    key="withdrawal_status",
+    elements=["Pending", "Approved", "Rejected", "Paid"],
+    required= False
+)
+
+result = db.create_float_attribute(
+    database_id= db_id,
+    collection_id= db_collection_id10,
+    key="amount",
+    required= False
+)
+
+result = db.create_string_attribute(
+    database_id= db_id,
+    collection_id= db_collection_id10,
+    key="bank_account",
+    size= 225,
+    required= False
+)
+
+result = db.create_string_attribute(
+    database_id= db_id,
+    collection_id= db_collection_id10,
+    key="note",
+    size= 1000,
+    required= False
+)
+
+result = db.create_string_attribute(
+    database_id= db_id,
+    collection_id= db_collection_id10,
+    key="farm_id",
+    size= 225,
+    required= False
+)
+
+result = db.create_string_attribute(
+    database_id= db_id,
+    collection_id= db_collection_id10,
+    key="farm_name",
+    size= 225,
+    required= False
+)
+
+result = db.create_string_attribute(
+    database_id= db_id,
+    collection_id= db_collection_id10,
+    key="requested_at",
+    size= 80,
+    required= False
+)
+
+result = db.create_string_attribute(
+    database_id= db_id,
+    collection_id= db_collection_id10,
+    key="processed_at",
+    size= 80,
+    required= False
+)
+
+result = db.create_string_attribute(
+    database_id= db_id,
+    collection_id= db_collection_id10,
+    key="decision_notes",
+    size= 1000,
+    required= False
+)
+
+result = db.create_string_attribute(
+    database_id= db_id,
+    collection_id= db_collection_id10,
+    key="account_name",
+    size= 225,
+    required= False
+)
+
+result = db.create_string_attribute(
+    database_id= db_id,
+    collection_id= db_collection_id10,
+    key="account_number",
+    size= 80,
+    required= False
+)
+
+result = db.create_string_attribute(
+    database_id= db_id,
+    collection_id= db_collection_id10,
+    key="bank_name",
+    size= 225,
+    required= False
+)
+
+result = db.create_enum_attribute(
+    database_id= db_id,
+    collection_id= db_collection_id10,
+    key="payout_method",
+    elements=["Bank", "Mobile Money"],
+    required= False
 )

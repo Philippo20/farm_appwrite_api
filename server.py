@@ -20,6 +20,11 @@ from routes.r17_pricing import collection17_router
 from routes.r18_system_config import collection18_router
 from routes.r20_inventory_movements import collection20_router
 from routes.r22_fund_requests import collection22_router
+from routes.r23_farm_tasks import collection23_router
+from routes.r24_farm_records import collection24_router
+from routes.r25_notifications import collection25_router
+from routes.r26_input_confirmations import collection26_router
+from routes.r27_caretaker_settings import collection27_router
 from storage import storage_router
 from auth import auth_router
 from backups import backups_router
@@ -51,6 +56,11 @@ app.include_router(collection2_router)
 app.include_router(collection3_router)
 app.include_router(collection20_router)
 app.include_router(collection22_router)
+app.include_router(collection23_router)
+app.include_router(collection24_router)
+app.include_router(collection25_router)
+app.include_router(collection26_router)
+app.include_router(collection27_router)
 app.include_router(collection4_router)
 app.include_router(collection5_router)
 app.include_router(collection6_router)
