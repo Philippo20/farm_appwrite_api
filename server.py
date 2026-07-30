@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Header
+from fastapi import FastAPI, Header, HTTPException
 import os
 from routes.r1_users import collection1_router
 from routes.r2_farms import collection2_router
@@ -36,19 +36,22 @@ app = FastAPI(
     docs_url="/",
     openapi_url="/farmestatesltd",
 )
-# http
-# http://localhost:8080
-# "GET", "POST", "PUT", "DELETE", "PATCH"
+
+_allowed_origins = [
+    origin.strip().rstrip("/")
+    for origin in os.getenv(
+        "APP_ALLOWED_ORIGINS",
+        "https://app.farmestates.farm,http://localhost:8080,http://localhost:8000,http://127.0.0.1:8000",
+    ).split(",")
+    if origin.strip()
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "*",
-        "http://localhost:8080",
-        "https://goldfish-app-pet66.ondigitalocean.app/"
-    ],
+    allow_origins=_allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
-    allow_headers=["Authorization", "Content-Type", "Cookie"],
+    allow_headers=["*"],
 )
 
 app.include_router(collection1_router)
@@ -83,3 +86,27 @@ app.include_router(backups_router)
 @app.get("/debug/headers")
 def debug_headers(authorization: str = Header(None)):
     return {"received": authorization}
+
+
+@app.get("/health")
+def health_check():
+    """Liveness endpoint used by DigitalOcean and uptime monitoring."""
+    return {"status": "ok", "service": "farmestates-api"}
+
+
+@app.get("/ready")
+def readiness_check():
+    """Configuration readiness check without exposing secret values."""
+    required = [
+        "APPWRITE_ENDPOINT",
+        "APPWRITE_PROJECT_ID",
+        "APPWRITE_API_KEY",
+        "APPWRITE_DB_ID",
+    ]
+    missing = [key for key in required if not os.getenv(key)]
+    if missing:
+        raise HTTPException(
+            status_code=503,
+            detail={"status": "not_ready", "missing": missing},
+        )
+    return {"status": "ready", "service": "farmestates-api"}

@@ -44,4 +44,6 @@ client.set_endpoint(os.getenv("APPWRITE_ENDPOINT"))
 client.set_project(os.getenv("APPWRITE_PROJECT_ID"))
 client.set_key(os.getenv("APPWRITE_API_KEY"))
 
-client.set_self_signed(True)
+client.set_self_signed(
+    os.getenv("APPWRITE_SELF_SIGNED", "false").strip().lower() == "true"
+)

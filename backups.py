@@ -39,7 +39,9 @@ def get_server_client():
     client.set_endpoint(APPWRITE_ENDPOINT)
     client.set_project(APPWRITE_PROJECT_ID)
     client.set_key(APPWRITE_API_KEY)
-    client.set_self_signed(True)
+    client.set_self_signed(
+        os.getenv("APPWRITE_SELF_SIGNED", "false").strip().lower() == "true"
+    )
     return client
 
 client = get_server_client()

@@ -74,7 +74,9 @@ def get_server_client():
     client.set_endpoint(os.getenv("APPWRITE_ENDPOINT"))
     client.set_project(os.getenv("APPWRITE_PROJECT_ID"))
     client.set_key(os.getenv("APPWRITE_API_KEY"))
-    client.set_self_signed(True)
+    client.set_self_signed(
+        os.getenv("APPWRITE_SELF_SIGNED", "false").strip().lower() == "true"
+    )
     return client
 
 def get_user_client_from_jwt(jwt_token: str) -> Client:
@@ -83,7 +85,9 @@ def get_user_client_from_jwt(jwt_token: str) -> Client:
     client.set_endpoint(os.getenv("APPWRITE_ENDPOINT"))
     client.set_project(os.getenv("APPWRITE_PROJECT_ID"))
     client.set_jwt(jwt_token)
-    client.set_self_signed(True)
+    client.set_self_signed(
+        os.getenv("APPWRITE_SELF_SIGNED", "false").strip().lower() == "true"
+    )
     return client
 
 # Helper function to create user-specific client with session ID
@@ -143,7 +147,9 @@ def login_user(
         user_client = Client()
         user_client.set_endpoint(os.getenv("APPWRITE_ENDPOINT"))
         user_client.set_project(os.getenv("APPWRITE_PROJECT_ID"))
-        user_client.set_self_signed(True)
+        user_client.set_self_signed(
+            os.getenv("APPWRITE_SELF_SIGNED", "false").strip().lower() == "true"
+        )
 
         # Appwrite stores session in cookies -> pass it manually
         session_secret = session["secret"]
