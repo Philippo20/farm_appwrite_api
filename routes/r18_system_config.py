@@ -37,6 +37,9 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "google_maps_default_lat": 5.6037,
     "google_maps_default_lng": -0.1870,
     "google_maps_default_zoom": 10,
+    "fulfillment_push_alerts": True,
+    "fulfillment_dock_escalations": True,
+    "fulfillment_auto_reorder_drafts": False,
     "updated_by": "system",
 }
 
@@ -108,6 +111,9 @@ def _normalize_config(payload: Dict[str, Any]) -> Dict[str, Any]:
         "google_maps_default_lat": google_lat,
         "google_maps_default_lng": google_lng,
         "google_maps_default_zoom": google_zoom,
+        "fulfillment_push_alerts": bool(merged["fulfillment_push_alerts"]),
+        "fulfillment_dock_escalations": bool(merged["fulfillment_dock_escalations"]),
+        "fulfillment_auto_reorder_drafts": bool(merged["fulfillment_auto_reorder_drafts"]),
         "updated_at": datetime.now(timezone.utc).isoformat(),
         "updated_by": str(merged.get("updated_by") or "system").strip(),
     }

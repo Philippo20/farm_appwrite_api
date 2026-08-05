@@ -204,6 +204,30 @@ result = db.create_integer_attribute(
     default=10
 )
 
+result = db.create_boolean_attribute(
+    database_id=db_id,
+    collection_id=db_collection_id18,
+    key="fulfillment_push_alerts",
+    required=False,
+    default=True
+)
+
+result = db.create_boolean_attribute(
+    database_id=db_id,
+    collection_id=db_collection_id18,
+    key="fulfillment_dock_escalations",
+    required=False,
+    default=True
+)
+
+result = db.create_boolean_attribute(
+    database_id=db_id,
+    collection_id=db_collection_id18,
+    key="fulfillment_auto_reorder_drafts",
+    required=False,
+    default=False
+)
+
 result = db.create_datetime_attribute(
     database_id=db_id,
     collection_id=db_collection_id18,
