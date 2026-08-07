@@ -75,6 +75,9 @@ def create_request(
             raise ValueError("proposal must be an object")
         db.get_document(database_id=db_id, collection_id=db_collection_id28, document_id=off_taker_id)
         payload = {
+            # Kept for compatibility with the first provisioned version of
+            # collection 29, which created a required legacy attribute.
+            "key": "",
             "off_taker_id": off_taker_id.strip(),
             "proposed_data": json.dumps(proposal),
             "reason": reason.strip(),
