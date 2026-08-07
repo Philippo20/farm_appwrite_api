@@ -31,6 +31,7 @@ const collectionSpecs = [
   { index: 26, file: '26_input_confirmations.py', name: 'Input confirmations' },
   { index: 27, file: '27_caretaker_settings.py', name: 'Caretaker settings' },
   { index: 28, file: '28_off_takers.py', name: 'Off-takers' },
+  { index: 29, file: '29_off_taker_update_requests.py', name: 'Off-taker update requests' },
 ];
 
 function selectedCollectionSpecs() {

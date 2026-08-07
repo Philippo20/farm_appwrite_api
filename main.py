@@ -38,6 +38,7 @@ db_collection_id25 = os.getenv("APPWRITE_COLLECTION_ID25", "notifications")
 db_collection_id26 = os.getenv("APPWRITE_COLLECTION_ID26", "input_confirmations")
 db_collection_id27 = os.getenv("APPWRITE_COLLECTION_ID27", "caretaker_settings")
 db_collection_id28 = os.getenv("APPWRITE_COLLECTION_ID28", "off_takers")
+db_collection_id29 = os.getenv("APPWRITE_COLLECTION_ID29", "off_taker_update_requests")
 
 client = Client()
 
