@@ -25,6 +25,7 @@ from routes.r24_farm_records import collection24_router
 from routes.r25_notifications import collection25_router
 from routes.r26_input_confirmations import collection26_router
 from routes.r27_caretaker_settings import collection27_router
+from routes.r28_off_takers import collection28_router
 from storage import storage_router
 from auth import auth_router
 from backups import backups_router
@@ -64,6 +65,7 @@ app.include_router(collection24_router)
 app.include_router(collection25_router)
 app.include_router(collection26_router)
 app.include_router(collection27_router)
+app.include_router(collection28_router)
 app.include_router(collection4_router)
 app.include_router(collection5_router)
 app.include_router(collection6_router)

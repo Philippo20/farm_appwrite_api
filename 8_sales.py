@@ -25,6 +25,14 @@ result = db.create_string_attribute(
 result = db.create_string_attribute(
     database_id= db_id,
     collection_id= db_collection_id8,
+    key="off_taker_id",
+    size= 225,
+    required= False
+)
+
+result = db.create_string_attribute(
+    database_id= db_id,
+    collection_id= db_collection_id8,
     key="buyer_id",
     size= 225,
     required= True

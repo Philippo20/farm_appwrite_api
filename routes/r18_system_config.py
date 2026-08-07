@@ -40,6 +40,9 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "fulfillment_push_alerts": True,
     "fulfillment_dock_escalations": True,
     "fulfillment_auto_reorder_drafts": False,
+    "qa_require_dual_approval": True,
+    "qa_inspection_alerts": True,
+    "qa_auto_export_reports": False,
     "updated_by": "system",
 }
 
@@ -53,7 +56,12 @@ def _require_collection():
 
 
 def _normalize_config(payload: Dict[str, Any]) -> Dict[str, Any]:
-    merged = {**DEFAULT_CONFIG, **payload}
+    # Existing documents may contain nulls for attributes added after creation.
+    # Treat those as missing so any later settings update remains valid.
+    merged = {
+        **DEFAULT_CONFIG,
+        **{key: value for key, value in payload.items() if value is not None},
+    }
 
     session_timeout = int(merged["session_timeout"])
     session_idle_warning_minutes = int(merged["session_idle_warning_minutes"])
@@ -114,6 +122,9 @@ def _normalize_config(payload: Dict[str, Any]) -> Dict[str, Any]:
         "fulfillment_push_alerts": bool(merged["fulfillment_push_alerts"]),
         "fulfillment_dock_escalations": bool(merged["fulfillment_dock_escalations"]),
         "fulfillment_auto_reorder_drafts": bool(merged["fulfillment_auto_reorder_drafts"]),
+        "qa_require_dual_approval": bool(merged["qa_require_dual_approval"]),
+        "qa_inspection_alerts": bool(merged["qa_inspection_alerts"]),
+        "qa_auto_export_reports": bool(merged["qa_auto_export_reports"]),
         "updated_at": datetime.now(timezone.utc).isoformat(),
         "updated_by": str(merged.get("updated_by") or "system").strip(),
     }

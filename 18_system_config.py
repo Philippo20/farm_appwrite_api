@@ -228,6 +228,30 @@ result = db.create_boolean_attribute(
     default=False
 )
 
+result = db.create_boolean_attribute(
+    database_id=db_id,
+    collection_id=db_collection_id18,
+    key="qa_require_dual_approval",
+    required=False,
+    default=True
+)
+
+result = db.create_boolean_attribute(
+    database_id=db_id,
+    collection_id=db_collection_id18,
+    key="qa_inspection_alerts",
+    required=False,
+    default=True
+)
+
+result = db.create_boolean_attribute(
+    database_id=db_id,
+    collection_id=db_collection_id18,
+    key="qa_auto_export_reports",
+    required=False,
+    default=False
+)
+
 result = db.create_datetime_attribute(
     database_id=db_id,
     collection_id=db_collection_id18,

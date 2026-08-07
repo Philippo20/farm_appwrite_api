@@ -33,11 +33,13 @@ def register_sales(
         receipt_number: Annotated[str, Form()],
         payment_date: Annotated[date, Form()],
         created_by: Annotated[str, Form()],
-        status: Annotated[Status, Form()]
+        status: Annotated[Status, Form()],
+        off_taker_id: Annotated[str, Form()] = ""
         ):
     sales_info = {
         "batch_id": batch_id,
         "buyer_id": buyer_id,
+        "off_taker_id": off_taker_id,
         "buyer_name": buyer_name,
         "delivered_by": delivered_by,
         "delivered_at": delivered_at.isoformat(),
@@ -121,7 +123,8 @@ def update_sale(sale_id:str,
     receipt_number: Annotated[str, Form()],
     payment_date: Annotated[date, Form()],
     created_by: Annotated[str, Form()],
-    status: Annotated[Status, Form()]
+    status: Annotated[Status, Form()],
+    off_taker_id: Annotated[str, Form()] = ""
     ):
     try:
         previous_sale = db.get_document(
@@ -131,6 +134,7 @@ def update_sale(sale_id:str,
         )
         update_data = {"batch_id": batch_id,
                   "buyer_id": buyer_id,
+                  "off_taker_id": off_taker_id,
                   "buyer_name": buyer_name,
                   "delivered_by": delivered_by,
                   "delivered_at": delivered_at.isoformat(),
