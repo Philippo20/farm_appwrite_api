@@ -43,7 +43,7 @@ _allowed_origins = [
     origin.strip().rstrip("/")
     for origin in os.getenv(
         "APP_ALLOWED_ORIGINS",
-        "https://app.farmestates.farm,http://localhost:8080,http://localhost:8000,http://127.0.0.1:8000",
+        "https://apps.farmestates.farm,https://app.farmestates.farm,http://localhost:8080,http://localhost:8000,http://127.0.0.1:8000",
     ).split(",")
     if origin.strip()
 ]

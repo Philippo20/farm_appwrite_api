@@ -166,11 +166,6 @@ def review_request(
         )
         requester_id = request.get("requested_by_id", "")
         requester_name = request.get("requested_by_name", "Sales Personnel")
-        _notify_sales_roles(
-            f"Off-taker update {status.value.lower()}",
-            f"Your off-taker update request was {status.value.lower()} by {reviewed_by_name or 'Sales Manager'}.",
-            exclude_id=requester_id,
-        )
         if requester_id:
             try:
                 create_notification(
