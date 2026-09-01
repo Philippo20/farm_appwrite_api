@@ -31,27 +31,6 @@ The API is available at `http://127.0.0.1:8000`. Health endpoints are available 
 
 For Android Emulator clients, use `http://10.0.2.2:8000` as the API host instead of `127.0.0.1`.
 
-## Crop duration migration
-
-Crop varieties store maturity as an integer `plant_duration_value` and a
-`plant_duration_unit` of `days` or `months`. Apply the schema and backfill
-existing records before deploying the matching Flutter client:
-
-```powershell
-node sync_appwrite_schema.js --only=16
-node migrate_crop_duration.js
-```
-
-Deploy the updated API and UI, verify crop creation and batch generation, then
-remove the legacy string attribute:
-
-```powershell
-node migrate_crop_duration.js --delete-legacy
-```
-
-These maintenance commands require a valid HTTPS certificate on the Appwrite
-endpoint. Do not disable TLS verification when transmitting the API key.
-
 ## Production
 
 The repository includes a `Dockerfile` for deployment. Provide environment variables through the hosting provider or a protected secret store, then expose the API behind HTTPS and a reverse proxy.

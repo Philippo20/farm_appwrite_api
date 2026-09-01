@@ -1,7 +1,6 @@
 from fastapi import APIRouter, Form, File, UploadFile, HTTPException, status
 from typing import Annotated
 from enum import Enum
-import re
 from main import db_id, db_collection_id16, client, bucket_id, project_id, appwrite_endpoint
 from db import db
 from appwrite.id import ID
@@ -18,36 +17,6 @@ class PlantDurationUnit(str, Enum):
     MONTHS = "months"
 
 
-def _parse_legacy_duration(value) -> tuple[int | None, str | None]:
-    if isinstance(value, int) and value > 0:
-        return value, PlantDurationUnit.DAYS.value
-    text = str(value or "").strip().lower()
-    match = re.search(r"(\d+)\s*(day|days|month|months|week|weeks)?", text)
-    if not match:
-        return None, None
-    amount = int(match.group(1))
-    if amount <= 0:
-        return None, None
-    unit = match.group(2) or "days"
-    if unit.startswith("week"):
-        return amount * 7, PlantDurationUnit.DAYS.value
-    if unit.startswith("month"):
-        return amount, PlantDurationUnit.MONTHS.value
-    return amount, PlantDurationUnit.DAYS.value
-
-
-def _resolve_duration(doc: dict) -> dict:
-    value = doc.get("plant_duration_value")
-    unit = str(doc.get("plant_duration_unit") or "").strip().lower()
-    if isinstance(value, int) and value > 0 and unit in {"days", "months"}:
-        return doc
-    legacy_value, legacy_unit = _parse_legacy_duration(doc.get("plant_duration"))
-    if legacy_value is not None and legacy_unit is not None:
-        doc["plant_duration_value"] = legacy_value
-        doc["plant_duration_unit"] = legacy_unit
-    return doc
-
-
 def _storage_view_url(file_id: str) -> str:
     return f"{appwrite_endpoint}/storage/buckets/{bucket_id}/files/{file_id}/view?project={project_id}"
 
@@ -57,7 +26,6 @@ def _storage_download_url(file_id: str) -> str:
 
 
 def _resolve_image_urls(doc: dict) -> dict:
-    _resolve_duration(doc)
     if doc.get("crop_image_url"):
         return doc
 
