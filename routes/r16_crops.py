@@ -14,6 +14,7 @@ collection16_router = APIRouter(tags=["Crops"])
 
 class PlantDurationUnit(str, Enum):
     DAYS = "days"
+    WEEKS = "weeks"
     MONTHS = "months"
 
 

@@ -241,8 +241,6 @@ async function main() {
   for (const key of ['APPWRITE_ENDPOINT', 'APPWRITE_PROJECT_ID', 'APPWRITE_API_KEY', 'APPWRITE_DB_ID']) {
     if (!env[key]) throw new Error(`Missing ${key} in .env`);
   }
-  process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
-
   if (process.argv.includes('--dry-run')) {
     const dryRun = selectedCollectionSpecs().map((spec) => ({
       collection: spec.name,

@@ -66,7 +66,7 @@ result = db.create_enum_attribute(
     database_id= db_id,
     collection_id= db_collection_id16,
     key= "plant_duration_unit",
-    elements= ["days", "months"],
+    elements= ["days", "weeks", "months"],
     required= False
 )
 
