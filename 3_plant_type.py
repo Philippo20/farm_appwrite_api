@@ -41,13 +41,6 @@ result = db.create_string_attribute(
 )
 
 result = db.create_integer_attribute(
-    database_id= db_id,
-    collection_id= db_collection_id3,
-    key="months_to_maturity",
-    required= True
-)
-
-result = db.create_integer_attribute(
     database_id=db_id,
     collection_id=db_collection_id3,
     key="maturity_min_weeks",

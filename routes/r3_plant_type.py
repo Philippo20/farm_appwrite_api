@@ -27,7 +27,6 @@ def _maturity_fields(min_value: int, max_value: int, unit: MaturityUnit):
     else:
         min_weeks, max_weeks = min_value, max_value
     return {
-        "months_to_maturity": math.ceil(max_weeks / 4.345),
         "maturity_min_weeks": min_weeks,
         "maturity_max_weeks": max_weeks,
         "maturity_unit": unit.value,
@@ -38,7 +37,6 @@ def _maturity_fields(min_value: int, max_value: int, unit: MaturityUnit):
 @collection3_router.post("/plant_type/info")
 async def register_plant_type(
         name: Annotated[str, Form()],
-        months_to_maturity: Annotated[int, Form()] = 1,
         maturity_min_value: Annotated[int, Form()] = 1,
         maturity_max_value: Annotated[int, Form()] = 1,
         maturity_unit: Annotated[MaturityUnit, Form()] = MaturityUnit.MONTHS,
@@ -124,7 +122,6 @@ async def create_plant_type_category(
                 "category": category,
                 "is_category": True,
                 "farmID": "plant-category",
-                "months_to_maturity": 0,
                 "image_url": "",
                 "growth_conditions": "Category marker",
                 "packaging_weights": 0,
@@ -196,7 +193,6 @@ def get_plant_type_info(plant_type_id:str):
 @collection3_router.put("/plant_type/{plant_type_id}")
 async def update_plant_type(plant_type_id:str,
     name: Annotated[str, Form()],
-    months_to_maturity: Annotated[int, Form()] = 1,
     maturity_min_value: Annotated[int, Form()] = 1,
     maturity_max_value: Annotated[int, Form()] = 1,
     maturity_unit: Annotated[MaturityUnit, Form()] = MaturityUnit.MONTHS,
