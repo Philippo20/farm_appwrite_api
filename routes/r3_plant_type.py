@@ -37,9 +37,10 @@ def _maturity_fields(min_value: int, max_value: int, unit: MaturityUnit):
 @collection3_router.post("/plant_type/info")
 async def register_plant_type(
         name: Annotated[str, Form()],
-        maturity_min_value: Annotated[int, Form()] = 1,
-        maturity_max_value: Annotated[int, Form()] = 1,
-        maturity_unit: Annotated[MaturityUnit, Form()] = MaturityUnit.MONTHS,
+        months_to_maturity: Annotated[int | None, Form()] = None,
+        maturity_min_value: Annotated[int | None, Form()] = None,
+        maturity_max_value: Annotated[int | None, Form()] = None,
+        maturity_unit: Annotated[MaturityUnit | None, Form()] = None,
         image_url: Annotated[str, Form()],
         status: Annotated[Status, Form()],
         category: Annotated[str, Form()] = "Plant Types",
@@ -58,7 +59,10 @@ async def register_plant_type(
                 "status": status,
                 "created_by": "Plant Type Catalog"
                 }
-        plant_data.update(_maturity_fields(maturity_min_value, maturity_max_value, maturity_unit))
+        min_value = maturity_min_value or months_to_maturity or 1
+        max_value = maturity_max_value or months_to_maturity or min_value
+        plant_data.update(_maturity_fields(
+            min_value, max_value, maturity_unit or MaturityUnit.MONTHS))
         plant_type_info_doc = db.create_document(
             database_id=db_id,
             collection_id=db_collection_id3,
@@ -193,9 +197,10 @@ def get_plant_type_info(plant_type_id:str):
 @collection3_router.put("/plant_type/{plant_type_id}")
 async def update_plant_type(plant_type_id:str,
     name: Annotated[str, Form()],
-    maturity_min_value: Annotated[int, Form()] = 1,
-    maturity_max_value: Annotated[int, Form()] = 1,
-    maturity_unit: Annotated[MaturityUnit, Form()] = MaturityUnit.MONTHS,
+    months_to_maturity: Annotated[int | None, Form()] = None,
+    maturity_min_value: Annotated[int | None, Form()] = None,
+    maturity_max_value: Annotated[int | None, Form()] = None,
+    maturity_unit: Annotated[MaturityUnit | None, Form()] = None,
     image_url: Annotated[str, Form()],
     status: Annotated[Status, Form()],
     category: Annotated[str, Form()] = "Plant Types"
@@ -213,7 +218,10 @@ async def update_plant_type(plant_type_id:str,
                 "image_url": image_url,
                 "status": status,
             }
-        update_data.update(_maturity_fields(maturity_min_value, maturity_max_value, maturity_unit))
+        min_value = maturity_min_value or months_to_maturity or 1
+        max_value = maturity_max_value or months_to_maturity or min_value
+        update_data.update(_maturity_fields(
+            min_value, max_value, maturity_unit or MaturityUnit.MONTHS))
         updated_doc = db.update_document(
             database_id=db_id,
             collection_id=db_collection_id3,
