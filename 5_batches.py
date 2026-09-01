@@ -56,6 +56,14 @@ result = db.create_string_attribute(
 result = db.create_string_attribute(
     database_id= db_id,
     collection_id= db_collection_id5,
+    key="plant_variety",
+    size= 225,
+    required= False
+)
+
+result = db.create_string_attribute(
+    database_id= db_id,
+    collection_id= db_collection_id5,
     key="farm_manager_id", #ID of the assigned farm manager
     size= 225,
     required= True
