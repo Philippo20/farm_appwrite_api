@@ -47,6 +47,47 @@ result = db.create_integer_attribute(
     required= True
 )
 
+result = db.create_integer_attribute(
+    database_id=db_id,
+    collection_id=db_collection_id3,
+    key="maturity_min_weeks",
+    required=False,
+    default=0
+)
+
+result = db.create_integer_attribute(
+    database_id=db_id,
+    collection_id=db_collection_id3,
+    key="maturity_max_weeks",
+    required=False,
+    default=0
+)
+
+result = db.create_enum_attribute(
+    database_id=db_id,
+    collection_id=db_collection_id3,
+    key="maturity_unit",
+    elements=["weeks", "months"],
+    required=False,
+    default="months"
+)
+
+result = db.create_integer_attribute(
+    database_id=db_id,
+    collection_id=db_collection_id3,
+    key="maturity_min_value",
+    required=False,
+    default=0
+)
+
+result = db.create_integer_attribute(
+    database_id=db_id,
+    collection_id=db_collection_id3,
+    key="maturity_max_value",
+    required=False,
+    default=0
+)
+
 result = db.create_string_attribute(
     database_id= db_id,
     collection_id= db_collection_id3,

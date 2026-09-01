@@ -5,6 +5,7 @@ from main import db_id, db_collection_id3
 from db import db
 from appwrite.id import ID
 from audit_utils import write_audit
+import math
 
 
 collection3_router = APIRouter(tags=["Plant type"])
@@ -13,10 +14,34 @@ class Status(str, Enum):
     ACTIVE = "active"
     INACTIVE = "inactive"
 
+class MaturityUnit(str, Enum):
+    WEEKS = "weeks"
+    MONTHS = "months"
+
+def _maturity_fields(min_value: int, max_value: int, unit: MaturityUnit):
+    if min_value <= 0 or max_value < min_value:
+        raise HTTPException(status_code=400, detail="Maturity range is invalid")
+    if unit == MaturityUnit.MONTHS:
+        min_weeks = max(1, math.ceil(min_value * 4.345))
+        max_weeks = max(min_weeks, math.ceil(max_value * 4.345))
+    else:
+        min_weeks, max_weeks = min_value, max_value
+    return {
+        "months_to_maturity": math.ceil(max_weeks / 4.345),
+        "maturity_min_weeks": min_weeks,
+        "maturity_max_weeks": max_weeks,
+        "maturity_unit": unit.value,
+        "maturity_min_value": min_value,
+        "maturity_max_value": max_value,
+    }
+
 @collection3_router.post("/plant_type/info")
 async def register_plant_type(
         name: Annotated[str, Form()],
-        months_to_maturity: Annotated[int, Form()],
+        months_to_maturity: Annotated[int, Form()] = 1,
+        maturity_min_value: Annotated[int, Form()] = 1,
+        maturity_max_value: Annotated[int, Form()] = 1,
+        maturity_unit: Annotated[MaturityUnit, Form()] = MaturityUnit.MONTHS,
         image_url: Annotated[str, Form()],
         status: Annotated[Status, Form()],
         category: Annotated[str, Form()] = "Plant Types",
@@ -27,7 +52,6 @@ async def register_plant_type(
                 "category": category,
                 "is_category": False,
                 "farmID": "plant-catalog",
-                "months_to_maturity": months_to_maturity,
                 "image_url": image_url,
                 "growth_conditions": "Moved to crop/production settings",
                 "packaging_weights": 0,
@@ -36,6 +60,7 @@ async def register_plant_type(
                 "status": status,
                 "created_by": "Plant Type Catalog"
                 }
+        plant_data.update(_maturity_fields(maturity_min_value, maturity_max_value, maturity_unit))
         plant_type_info_doc = db.create_document(
             database_id=db_id,
             collection_id=db_collection_id3,
@@ -171,7 +196,10 @@ def get_plant_type_info(plant_type_id:str):
 @collection3_router.put("/plant_type/{plant_type_id}")
 async def update_plant_type(plant_type_id:str,
     name: Annotated[str, Form()],
-    months_to_maturity: Annotated[int, Form()],
+    months_to_maturity: Annotated[int, Form()] = 1,
+    maturity_min_value: Annotated[int, Form()] = 1,
+    maturity_max_value: Annotated[int, Form()] = 1,
+    maturity_unit: Annotated[MaturityUnit, Form()] = MaturityUnit.MONTHS,
     image_url: Annotated[str, Form()],
     status: Annotated[Status, Form()],
     category: Annotated[str, Form()] = "Plant Types"
@@ -186,10 +214,10 @@ async def update_plant_type(plant_type_id:str,
                 "name": name,
                 "category": category,
                 "is_category": False,
-                "months_to_maturity": months_to_maturity,
                 "image_url": image_url,
                 "status": status,
             }
+        update_data.update(_maturity_fields(maturity_min_value, maturity_max_value, maturity_unit))
         updated_doc = db.update_document(
             database_id=db_id,
             collection_id=db_collection_id3,
