@@ -37,12 +37,12 @@ def _maturity_fields(min_value: int, max_value: int, unit: MaturityUnit):
 @collection3_router.post("/plant_type/info")
 async def register_plant_type(
         name: Annotated[str, Form()],
+        image_url: Annotated[str, Form()],
+        status: Annotated[Status, Form()],
         months_to_maturity: Annotated[int | None, Form()] = None,
         maturity_min_value: Annotated[int | None, Form()] = None,
         maturity_max_value: Annotated[int | None, Form()] = None,
         maturity_unit: Annotated[MaturityUnit | None, Form()] = None,
-        image_url: Annotated[str, Form()],
-        status: Annotated[Status, Form()],
         category: Annotated[str, Form()] = "Plant Types",
         ):
     try:
@@ -197,12 +197,12 @@ def get_plant_type_info(plant_type_id:str):
 @collection3_router.put("/plant_type/{plant_type_id}")
 async def update_plant_type(plant_type_id:str,
     name: Annotated[str, Form()],
+    image_url: Annotated[str, Form()],
+    status: Annotated[Status, Form()],
     months_to_maturity: Annotated[int | None, Form()] = None,
     maturity_min_value: Annotated[int | None, Form()] = None,
     maturity_max_value: Annotated[int | None, Form()] = None,
     maturity_unit: Annotated[MaturityUnit | None, Form()] = None,
-    image_url: Annotated[str, Form()],
-    status: Annotated[Status, Form()],
     category: Annotated[str, Form()] = "Plant Types"
     ):
     try:
