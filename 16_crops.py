@@ -54,12 +54,20 @@ result = db.create_string_attribute(
     required= True
 )
 
-result = db.create_string_attribute(
+result = db.create_integer_attribute(
     database_id= db_id,
     collection_id= db_collection_id16,
-    key= "plant_duration",
-    size= 225,
-    required= True
+    key= "plant_duration_value",
+    required= False,
+    min= 1
+)
+
+result = db.create_enum_attribute(
+    database_id= db_id,
+    collection_id= db_collection_id16,
+    key= "plant_duration_unit",
+    elements= ["days", "months"],
+    required= False
 )
 
 result = db.create_float_attribute(

@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Form, File, UploadFile, HTTPException, status
-from pydantic import BaseModel
 from typing import Annotated
+from enum import Enum
+import re
 from main import db_id, db_collection_id16, client, bucket_id, project_id, appwrite_endpoint
 from db import db
 from appwrite.id import ID
@@ -12,6 +13,41 @@ from audit_utils import write_audit
 collection16_router = APIRouter(tags=["Crops"])
 
 
+class PlantDurationUnit(str, Enum):
+    DAYS = "days"
+    MONTHS = "months"
+
+
+def _parse_legacy_duration(value) -> tuple[int | None, str | None]:
+    if isinstance(value, int) and value > 0:
+        return value, PlantDurationUnit.DAYS.value
+    text = str(value or "").strip().lower()
+    match = re.search(r"(\d+)\s*(day|days|month|months|week|weeks)?", text)
+    if not match:
+        return None, None
+    amount = int(match.group(1))
+    if amount <= 0:
+        return None, None
+    unit = match.group(2) or "days"
+    if unit.startswith("week"):
+        return amount * 7, PlantDurationUnit.DAYS.value
+    if unit.startswith("month"):
+        return amount, PlantDurationUnit.MONTHS.value
+    return amount, PlantDurationUnit.DAYS.value
+
+
+def _resolve_duration(doc: dict) -> dict:
+    value = doc.get("plant_duration_value")
+    unit = str(doc.get("plant_duration_unit") or "").strip().lower()
+    if isinstance(value, int) and value > 0 and unit in {"days", "months"}:
+        return doc
+    legacy_value, legacy_unit = _parse_legacy_duration(doc.get("plant_duration"))
+    if legacy_value is not None and legacy_unit is not None:
+        doc["plant_duration_value"] = legacy_value
+        doc["plant_duration_unit"] = legacy_unit
+    return doc
+
+
 def _storage_view_url(file_id: str) -> str:
     return f"{appwrite_endpoint}/storage/buckets/{bucket_id}/files/{file_id}/view?project={project_id}"
 
@@ -21,6 +57,7 @@ def _storage_download_url(file_id: str) -> str:
 
 
 def _resolve_image_urls(doc: dict) -> dict:
+    _resolve_duration(doc)
     if doc.get("crop_image_url"):
         return doc
 
@@ -46,7 +83,8 @@ async def register_crops_info(
     crop_image: Annotated[UploadFile, File(...)],
     crop_name: Annotated[str, Form()],
     variety_name: Annotated[str, Form()],
-    plant_duration: Annotated[str, Form()],
+    plant_duration_value: Annotated[int, Form()],
+    plant_duration_unit: Annotated[PlantDurationUnit, Form()],
     harvesting_weight: Annotated[float, Form()],
     company: Annotated[str, Form()],
     sprouting_ratio: Annotated[float, Form()],
@@ -60,6 +98,11 @@ async def register_crops_info(
     humidity_max: Annotated[float, Form()],
     created_by: Annotated[str, Form(...)]
 ):
+    if plant_duration_value <= 0:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Plant duration must be greater than zero",
+        )
     file_bytes = await crop_image.read()
     
     try:
@@ -83,7 +126,8 @@ async def register_crops_info(
             "crop_image_download_url": download_url,
             "crop_name": crop_name,
             "variety_name": variety_name,
-            "plant_duration": plant_duration,
+            "plant_duration_value": plant_duration_value,
+            "plant_duration_unit": plant_duration_unit.value,
             "harvesting_weight": harvesting_weight,
             "company": company,
             "sprouting_ratio": sprouting_ratio,
@@ -173,7 +217,8 @@ async def update_crops_info(
     crop_image: Annotated[UploadFile, File(...)]= None,
     crop_name: Annotated[str, Form()]= None,
     variety_name: Annotated[str, Form()]= None,
-    plant_duration: Annotated[str, Form()]= None,
+    plant_duration_value: Annotated[int, Form()]= None,
+    plant_duration_unit: Annotated[PlantDurationUnit, Form()]= None,
     harvesting_weight: Annotated[float, Form()] = None,
     company: Annotated[str, Form()] = None,
     sprouting_ratio: Annotated[float, Form()]= None,
@@ -187,6 +232,16 @@ async def update_crops_info(
     humidity_max: Annotated[float, Form()]= None,
     created_by: Annotated[str, Form(...)]= None
 ):
+    if plant_duration_value is not None and plant_duration_value <= 0:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Plant duration must be greater than zero",
+        )
+    if (plant_duration_value is None) != (plant_duration_unit is None):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Plant duration value and unit must be updated together",
+        )
     update_data = {}
     view_url = None
     download_url = None
@@ -212,7 +267,10 @@ async def update_crops_info(
     form_fields = {
         "crop_name": crop_name,
         "variety_name": variety_name,
-        "plant_duration": plant_duration,
+        "plant_duration_value": plant_duration_value,
+        "plant_duration_unit": (
+            plant_duration_unit.value if plant_duration_unit is not None else None
+        ),
         "harvesting_weight": harvesting_weight,
         "company": company,
         "sprouting_ratio": sprouting_ratio,
