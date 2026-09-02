@@ -27,6 +27,7 @@ from routes.r26_input_confirmations import collection26_router
 from routes.r27_caretaker_settings import collection27_router
 from routes.r28_off_takers import collection28_router
 from routes.r29_off_taker_update_requests import collection29_router
+from routes.r30_traceability import traceability_router
 from storage import storage_router
 from auth import auth_router
 from backups import backups_router
@@ -68,6 +69,7 @@ app.include_router(collection26_router)
 app.include_router(collection27_router)
 app.include_router(collection28_router)
 app.include_router(collection29_router)
+app.include_router(traceability_router)
 app.include_router(collection4_router)
 app.include_router(collection5_router)
 app.include_router(collection6_router)

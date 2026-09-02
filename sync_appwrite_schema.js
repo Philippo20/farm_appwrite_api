@@ -32,6 +32,10 @@ const collectionSpecs = [
   { index: 27, file: '27_caretaker_settings.py', name: 'Caretaker settings' },
   { index: 28, file: '28_off_takers.py', name: 'Off-takers' },
   { index: 29, file: '29_off_taker_update_requests.py', name: 'Off-taker update requests' },
+  { index: 30, file: '30_traceability_settings.py', name: 'Traceability settings', defaultId: 'traceability_settings' },
+  { index: 31, file: '31_batch_traceability.py', name: 'Batch traceability', defaultId: 'batch_traceability' },
+  { index: 32, file: '32_traceability_promotions.py', name: 'Traceability promotions', defaultId: 'traceability_promotions' },
+  { index: 33, file: '33_traceability_events.py', name: 'Traceability events', defaultId: 'traceability_events' },
 ];
 
 function selectedCollectionSpecs() {
@@ -244,7 +248,7 @@ async function main() {
   if (process.argv.includes('--dry-run')) {
     const dryRun = selectedCollectionSpecs().map((spec) => ({
       collection: spec.name,
-      collectionId: env[`APPWRITE_COLLECTION_ID${spec.index}`] || null,
+      collectionId: env[`APPWRITE_COLLECTION_ID${spec.index}`] || spec.defaultId || null,
       schemaFile: spec.file,
       attributes: parseAttributes(spec.file).map((attribute) => ({
         key: attribute.key,
@@ -277,7 +281,7 @@ async function main() {
   }
 
   for (const spec of selectedCollectionSpecs()) {
-    const collectionId = env[`APPWRITE_COLLECTION_ID${spec.index}`];
+    const collectionId = env[`APPWRITE_COLLECTION_ID${spec.index}`] || spec.defaultId;
     if (!collectionId) {
       report.skipped.push(`${spec.name}: missing APPWRITE_COLLECTION_ID${spec.index}`);
       continue;

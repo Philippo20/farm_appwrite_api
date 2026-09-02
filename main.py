@@ -39,6 +39,10 @@ db_collection_id26 = os.getenv("APPWRITE_COLLECTION_ID26", "input_confirmations"
 db_collection_id27 = os.getenv("APPWRITE_COLLECTION_ID27", "caretaker_settings")
 db_collection_id28 = os.getenv("APPWRITE_COLLECTION_ID28", "off_takers")
 db_collection_id29 = os.getenv("APPWRITE_COLLECTION_ID29", "off_taker_update_requests")
+db_collection_id30 = os.getenv("APPWRITE_COLLECTION_ID30", "traceability_settings")
+db_collection_id31 = os.getenv("APPWRITE_COLLECTION_ID31", "batch_traceability")
+db_collection_id32 = os.getenv("APPWRITE_COLLECTION_ID32", "traceability_promotions")
+db_collection_id33 = os.getenv("APPWRITE_COLLECTION_ID33", "traceability_events")
 
 client = Client()
 
