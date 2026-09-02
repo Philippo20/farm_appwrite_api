@@ -16,6 +16,7 @@ from db import db
 from appwrite.id import ID
 from appwrite.input_file import InputFile
 from storage import st
+from audit_utils import write_audit
 
 
 collection5_router = APIRouter(tags=["Batches"])
@@ -224,112 +225,118 @@ def get_batch_info(batch_id:str):
             detail=str(e))
     
 @collection5_router.put("/batches/{batch_id}")
-async def update_batch(batch_id:str,
-    batch_no: Annotated[str, Form()],
-    farmID: Annotated[str, Form()],
-    farm_name: Annotated[str, Form()],
-    plant_type_ID: Annotated[str, Form()],
-    plant_name: Annotated[str, Form()],
-    plant_variety: Annotated[str, Form()],
-    farm_manager_id: Annotated[str, Form()],
-    farm_manager_name: Annotated[str, Form()],
-    caretaker_id: Annotated[str, Form()],
-    caretaker_name: Annotated[str, Form()],
-    start_date: Annotated[date, Form(...)],
-    actual_harvest_date: Annotated[date, Form(...)],
-    total_seeds_nursed: Annotated[int, Form()],
-    total_harvested: Annotated[int, Form()],
-    total_transplanted: Annotated[int, Form()],
-    total_weight_kg: Annotated[float, Form()],
-    harvest_images: Annotated[UploadFile, File()],
-    production_status: Annotated[ProductionStatus, Form()],
-    technical_issues: Annotated[str, Form()],
-    inputs_supplied: Annotated[str, Form()],
-    funds_requested: Annotated[bool, Form()],
-    financial_status: Annotated[FinancialStatus, Form()],
-    fund_request_id: Annotated[str, Form()],
-    delivery_status: Annotated[DeliveryStatus, Form()],
-    delivery_details: Annotated[str, Form()],
-    created_by: Annotated[str, Form()],
-    created_at: Annotated[date, Form(...)],
-    updated_at: Annotated[datetime, Form(...)],
-    end_date: Annotated[date, Form(...)]= None,
-    ):
-    updated_at = datetime.now(timezone.utc).isoformat()
-
-    update_data = {}
-
-    # If a new image is uploaded, replace the old one
-    if harvest_images:
-        file_bytes = await harvest_images.read()
-        uploaded_file = st.create_file(
-            bucket_id=bucket_id,
-            file_id=ID.unique(),
-            file=InputFile.from_bytes(file_bytes, filename=harvest_images.filename)
+async def update_batch(
+    batch_id: str,
+    plant_variety: Annotated[Optional[str], Form()] = None,
+    start_date: Annotated[Optional[date], Form()] = None,
+    end_date: Annotated[Optional[date], Form()] = None,
+    total_seeds_nursed: Annotated[Optional[int], Form()] = None,
+    total_harvested: Annotated[Optional[int], Form()] = None,
+    total_transplanted: Annotated[Optional[int], Form()] = None,
+    total_weight_kg: Annotated[Optional[float], Form()] = None,
+    production_status: Annotated[Optional[ProductionStatus], Form()] = None,
+    technical_issues: Annotated[Optional[str], Form()] = None,
+    updated_by: Annotated[str, Form()] = "system",
+    updated_by_role: Annotated[str, Form()] = "farm_manager",
+    harvest_images: Optional[UploadFile] = File(None),
+):
+    try:
+        previous = db.get_document(
+            database_id=db_id,
+            collection_id=db_collection_id5,
+            document_id=batch_id,
         )
 
-        file_id = uploaded_file["$id"]
-        view_url = f"{appwrite_endpoint}/storage/buckets/{bucket_id}/files/{file_id}/view?project={project_id}"
-        download_url = f"{appwrite_endpoint}/storage/buckets/{bucket_id}/files/{file_id}/download?project={project_id}"
+        update_data = {}
+        if plant_variety is not None:
+            update_data["plant_variety"] = plant_variety.strip()
+        if start_date is not None:
+            update_data["start_date"] = start_date.isoformat()
+        if end_date is not None:
+            update_data["end_date"] = end_date.isoformat()
 
-    # Only include fields that were actually provided
-    form_fields = {"batch_no": batch_no,
-                  "farmID": farmID,
-                  "farm_name": farm_name,
-        "plant_type_ID": plant_type_ID,
-        "plant_name": plant_name,
-        "plant_variety": plant_variety,
-        "farm_manager_id": farm_manager_id,
-                  "farm_manager_name": farm_manager_name,
-                  "caretaker_id": caretaker_id,
-                  "caretaker_name": caretaker_name,   
-                  "start_date": start_date.isoformat(),
-                  "end_date": end_date.isoformat(),
-                  "actual_harvest_date": actual_harvest_date.isoformat(),
-                  "total_seeds_nursed": total_seeds_nursed,   
-                  "total_harvested": total_harvested,   
-                  "total_transplanted": total_transplanted,   
-                  "total_weight_kg": total_weight_kg,   
-                  "harvest_images": view_url,
-                  "production_status": production_status,   
-                  "technical_issues": technical_issues,   
-                  "inputs_supplied": inputs_supplied,   
-                  "funds_requested": funds_requested,   
-                  "financial_status": financial_status,   
-                  "fund_request_id": fund_request_id,   
-                  "delivery_status": delivery_status,   
-                  "delivery_details": delivery_details,   
-                  "created_by": created_by,   
-                  "created_at": created_at.isoformat(),
-                  "updated_at": updated_at
-            }
-            # permissions=[]
-    
-    # Add only non-None fields to the update payload
-    for key, value in form_fields.items():
-        if value is not None:
-            update_data[key] = value
+        numeric_fields = {
+            "total_seeds_nursed": total_seeds_nursed,
+            "total_harvested": total_harvested,
+            "total_transplanted": total_transplanted,
+            "total_weight_kg": total_weight_kg,
+        }
+        for key, value in numeric_fields.items():
+            if value is not None:
+                if value < 0:
+                    raise HTTPException(
+                        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                        detail=f"{key} cannot be negative.",
+                    )
+                update_data[key] = value
 
-    try:
-        # Update the existing document in Appwrite Database
+        def parse_stored_date(value):
+            try:
+                return date.fromisoformat(str(value)[:10]) if value else None
+            except ValueError:
+                return None
+
+        effective_start = start_date or parse_stored_date(previous.get("start_date"))
+        effective_end = end_date or parse_stored_date(previous.get("end_date"))
+        if (
+            effective_start is not None
+            and effective_end is not None
+            and effective_end < effective_start
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="End date cannot be before the start date.",
+            )
+
+        if production_status is not None:
+            update_data["production_status"] = production_status.value
+        if technical_issues is not None:
+            update_data["technical_issues"] = technical_issues.strip()
+
+        if harvest_images is not None:
+            file_bytes = await harvest_images.read()
+            uploaded_file = st.create_file(
+                bucket_id=bucket_id,
+                file_id=ID.unique(),
+                file=InputFile.from_bytes(
+                    file_bytes,
+                    filename=harvest_images.filename,
+                ),
+            )
+            file_id = uploaded_file["$id"]
+            update_data["harvest_images"] = (
+                f"{appwrite_endpoint}/storage/buckets/{bucket_id}/files/"
+                f"{file_id}/view?project={project_id}"
+            )
+
+        update_data["updated_at"] = datetime.now(timezone.utc).isoformat()
         updated_doc = db.update_document(
             database_id=db_id,
             collection_id=db_collection_id5,
             document_id=batch_id,
-            data=update_data
+            data=update_data,
         )
-
+        write_audit(
+            action_type="Update",
+            collection_name="Batches",
+            performed_by_id=updated_by,
+            performed_by_role=updated_by_role,
+            action_details=f"Updated batch {previous.get('batch_no', batch_id)}",
+            previous_data=previous,
+            new_data=update_data,
+        )
         return {
-            "message": "Crop info updated successfully",
+            "message": "Batch updated successfully",
             "batch_id": updated_doc["$id"],
             "updated_data": update_data,
-            "harvest_image_id": file_id,
-            "harvest_image_url": view_url,
-            "download_url": download_url
         }
-
+    except HTTPException:
+        raise
     except Exception as e:
-        return {"error": str(e)}
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Could not update batch: {e}",
+        ) from e
 
 @collection5_router.delete("/batches/{batch_id}")
 def delete_batch(batch_no:str):
