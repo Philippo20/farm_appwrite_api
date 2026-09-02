@@ -2,7 +2,16 @@ from fastapi import APIRouter, Form, File, UploadFile, HTTPException, status
 from typing import Annotated, Optional
 from enum import Enum
 from datetime import datetime, date, timezone
-from main import db_id, db_collection_id5, bucket_id, project_id, appwrite_endpoint
+from main import (
+    db_id,
+    db_collection_id1,
+    db_collection_id2,
+    db_collection_id3,
+    db_collection_id5,
+    bucket_id,
+    project_id,
+    appwrite_endpoint,
+)
 from db import db
 from appwrite.id import ID
 from appwrite.input_file import InputFile
@@ -34,36 +43,85 @@ async def register_batch(
         batch_no: Annotated[str, Form(...)],
         farmID: Annotated[str, Form(...)],
         farm_name: Annotated[str, Form(...)],
-        plant_type_ID: Annotated[str, Form()],
+        plant_type_ID: Annotated[str, Form(...)],
         plant_name: Annotated[str, Form(...)],
         plant_variety: Annotated[str, Form(...)],
         farm_manager_id: Annotated[str, Form(...)],
         farm_manager_name: Annotated[str, Form(...)],
-        caretaker_id: Annotated[str, Form()],
-        caretaker_name: Annotated[str, Form()],
         start_date: Annotated[date, Form(...)],
-        actual_harvest_date: Annotated[date, Form(...)],
-        total_seeds_nursed: Annotated[int, Form()],
-        total_harvested: Annotated[int, Form()],
-        total_transplanted: Annotated[int, Form()],
-        total_weight_kg: Annotated[float, Form()],
-        production_status: Annotated[ProductionStatus, Form()],
-        technical_issues: Annotated[str, Form()],
-        inputs_supplied: Annotated[str, Form()],
-        funds_requested: Annotated[bool, Form()],
-        financial_status: Annotated[FinancialStatus, Form()],
-        fund_request_id: Annotated[str, Form()],
-        delivery_status: Annotated[DeliveryStatus, Form()],
-        delivery_details: Annotated[str, Form()],
+        end_date: Annotated[date, Form(...)],
+        total_seeds_nursed: Annotated[int, Form(...)],
         created_by: Annotated[str, Form()],
-        created_at: Annotated[date, Form(...)],
-        updated_at: Annotated[datetime, Form(...)],
-        end_date: Annotated[date, Form(...)]= None,
+        technical_issues: Annotated[str, Form()] = "",
+        caretaker_id: Annotated[str, Form()] = "",
+        caretaker_name: Annotated[str, Form()] = "",
         harvest_images: Optional[UploadFile] = File(None),
         ):
-    updated_at = datetime.now(timezone.utc).isoformat()
-    
+    now = datetime.now(timezone.utc).isoformat()
+
+    if not plant_type_ID.strip():
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="The selected plant type is not linked to the plant catalog.",
+        )
     try:
+        try:
+            farm = db.get_document(
+                database_id=db_id,
+                collection_id=db_collection_id2,
+                document_id=farmID,
+            )
+        except Exception as error:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="The selected farm no longer exists.",
+            ) from error
+
+        assigned_caretaker_id = str(farm.get("caretakerID") or "").strip()
+        if not assigned_caretaker_id or assigned_caretaker_id.lower() == "unassigned":
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Assign a caretaker to this farm before creating a batch.",
+            )
+        if caretaker_id.strip() and caretaker_id.strip() != assigned_caretaker_id:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="The selected caretaker is not assigned to this farm.",
+            )
+        caretaker_id = assigned_caretaker_id
+        try:
+            caretaker = db.get_document(
+                database_id=db_id,
+                collection_id=db_collection_id1,
+                document_id=caretaker_id,
+            )
+            caretaker_name = str(caretaker.get("name") or caretaker_name).strip()
+        except Exception as error:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="The farm's assigned caretaker record no longer exists.",
+            ) from error
+
+        try:
+            plant_type = db.get_document(
+                database_id=db_id,
+                collection_id=db_collection_id3,
+                document_id=plant_type_ID,
+            )
+        except Exception as error:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="The selected plant type no longer exists.",
+            ) from error
+        if plant_type.get("is_category") is True:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Select a plant type, not a plant category.",
+            )
+
+        farm_name = str(farm.get("name") or farm_name).strip()
+        plant_name = str(plant_type.get("name") or plant_name).strip()
+
         file_id = ""
         view_url = ""
         download_url = ""
@@ -98,24 +156,23 @@ async def register_batch(
                 "caretaker_id": caretaker_id,
                 "caretaker_name": caretaker_name,   
                 "start_date": start_date.isoformat(),
-                "end_date": end_date.isoformat() if end_date else "",
-                "actual_harvest_date": actual_harvest_date.isoformat() if actual_harvest_date else "",
+                "end_date": end_date.isoformat(),
                 "total_seeds_nursed": total_seeds_nursed,   
-                "total_harvested": total_harvested,   
-                "total_transplanted": total_transplanted,   
-                "total_weight_kg": total_weight_kg,   
+                "total_harvested": 0,
+                "total_transplanted": 0,
+                "total_weight_kg": 0.0,
                 "harvest_images": view_url,
-                "production_status": production_status,   
-                "technical_issues": technical_issues,   
-                "inputs_supplied": inputs_supplied,   
-                "funds_requested": funds_requested,   
-                "financial_status": financial_status,   
-                "fund_request_id": fund_request_id,   
-                "delivery_status": delivery_status,   
-                "delivery_details": delivery_details,   
+                "production_status": ProductionStatus.PLANTED.value,
+                "technical_issues": technical_issues.strip(),
+                "inputs_supplied": "Batch created",
+                "funds_requested": False,
+                "financial_status": FinancialStatus.PENDING.value,
+                "fund_request_id": "",
+                "delivery_status": DeliveryStatus.PENDING.value,
+                "delivery_details": "",
                 "created_by": created_by,   
-                "created_at": created_at.isoformat(),
-                "updated_at": updated_at
+                "created_at": now,
+                "updated_at": now
             }
         )
         return {
@@ -125,8 +182,13 @@ async def register_batch(
              "harvest_image_url": view_url,
              "download_url": download_url
         }
+    except HTTPException:
+        raise
     except Exception as e:
-        return {"error": str(e)}
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Could not create batch: {e}",
+        ) from e
 
 @collection5_router.get("/batches")
 def get_all_batches_infos():
