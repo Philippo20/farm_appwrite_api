@@ -103,6 +103,22 @@ def _find_fulfillment_for_batch(batch_number):
         database_id=db_id,
         collection_id=db_collection_id7,
     )
+
+
+def _find_batch_by_number(batch_number):
+    normalized = batch_number.casefold()
+    result = db.list_documents(
+        database_id=db_id,
+        collection_id=db_collection_id5,
+    )
+    return next(
+        (
+            item
+            for item in result.get("documents", [])
+            if _batch_number(item).casefold() == normalized
+        ),
+        None,
+    )
     return next(
         (
             item
@@ -371,6 +387,7 @@ def inspect_harvest_intake(batch_id: str, payload: HarvestInspectionPayload):
             "farm_manager_id": str(batch.get("farm_manager_id") or "Unassigned"),
             "farm_name": str(batch.get("farm_name") or "Unassigned Farm"),
             "plant_type": str(batch.get("plant_name") or "Unspecified crop"),
+            "plant_variety": str(batch.get("plant_variety") or "").strip(),
             "total_heads": payload.total_heads,
             "total_weight": payload.total_weight,
             "harvest_received_images": str(batch.get("harvest_images") or "")[:225],
@@ -585,17 +602,29 @@ def record_packaging_output(fulfillment_id: str, payload: PackagingRecordPayload
             )
 
         package_name = str(package_before.get("package_name") or "").strip()
-        package_crop = _normalized(package_before.get("plant_type_name"))
-        fulfillment_crop = _normalized(fulfillment.get("plant_type"))
-        if (
-            package_crop
-            and package_crop not in {"all plant types", "all crops", "all"}
-            and fulfillment_crop
-            and package_crop != fulfillment_crop
-        ):
+        package_variety = _normalized(package_before.get("crop_variety_name"))
+        if not package_variety:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    f"{package_name or 'This package'} is a legacy configuration. "
+                    "Edit it in the packaging catalog and assign a crop variety."
+                ),
+            )
+
+        fulfillment_variety = _normalized(fulfillment.get("plant_variety"))
+        if not fulfillment_variety:
+            batch = _find_batch_by_number(str(fulfillment.get("batch_number") or ""))
+            fulfillment_variety = _normalized((batch or {}).get("plant_variety"))
+        if not fulfillment_variety:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="This fulfillment record has no crop variety. Update its batch before packaging.",
+            )
+        if package_variety != fulfillment_variety:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail=f"{package_name or 'This package'} is configured for {package_before.get('plant_type_name')}, not {fulfillment.get('plant_type')}.",
+                detail=f"{package_name or 'This package'} is configured for {package_before.get('crop_variety_name')}, not {fulfillment.get('plant_variety') or fulfillment_variety}.",
             )
 
         previous_type = str(fulfillment.get("packaging_type") or "").strip()
@@ -803,7 +832,8 @@ def register_fulfillment(
         eta: Annotated[str, Form()] = "",
         temperature: Annotated[str, Form()] = "N/A",
         priority: Annotated[DeliveryPriority, Form()] = DeliveryPriority.MEDIUM,
-        delivery_note: Annotated[str, Form()] = ""
+        delivery_note: Annotated[str, Form()] = "",
+        plant_variety: Annotated[str, Form()] = ""
         ):
     audits_info = {
         "fulfillment_id": ID.unique(),
@@ -811,6 +841,7 @@ def register_fulfillment(
         "farm_manager_id": farm_manager_id,
         "farm_name": farm_name,
         "plant_type": plant_type,
+        "plant_variety": plant_variety.strip(),
         "total_heads": total_heads,
         "total_weight": total_weight,
         "harvest_received_images": harvest_received_images,
@@ -869,9 +900,41 @@ def get_all_fulfillment_infos():
             database_id=db_id,
             collection_id=db_collection_id7
         )
-
-        # Extract the list of users
         audit_users = result["documents"]
+        missing_variety = [
+            item
+            for item in audit_users
+            if not str(item.get("plant_variety") or "").strip()
+        ]
+        if missing_variety:
+            batches = db.list_documents(
+                database_id=db_id,
+                collection_id=db_collection_id5,
+            ).get("documents", [])
+            varieties_by_batch = {
+                _batch_number(batch).casefold(): str(
+                    batch.get("plant_variety") or ""
+                ).strip()
+                for batch in batches
+                if _batch_number(batch)
+            }
+            for item in missing_variety:
+                variety = varieties_by_batch.get(
+                    str(item.get("batch_number") or "").strip().casefold(),
+                    "",
+                )
+                if not variety:
+                    continue
+                try:
+                    db.update_document(
+                        database_id=db_id,
+                        collection_id=db_collection_id7,
+                        document_id=item["$id"],
+                        data={"plant_variety": variety},
+                    )
+                except Exception:
+                    pass
+                item["plant_variety"] = variety
 
         return {
             "count": len(audit_users),
@@ -926,7 +989,8 @@ def update_fulfillment(fulfillment_id:str,
     eta: Annotated[str, Form()] = "",
     temperature: Annotated[str, Form()] = "N/A",
     priority: Annotated[DeliveryPriority, Form()] = DeliveryPriority.MEDIUM,
-    delivery_note: Annotated[str, Form()] = ""
+    delivery_note: Annotated[str, Form()] = "",
+    plant_variety: Annotated[str | None, Form()] = None
     ):
     try:
         previous_fulfillment = db.get_document(
@@ -965,6 +1029,8 @@ def update_fulfillment(fulfillment_id:str,
                   "priority": priority,
                   "delivery_note": delivery_note
             }
+        if plant_variety is not None:
+            update_data["plant_variety"] = plant_variety.strip()
         if update_data["scheduled_date"] is None:
             update_data.pop("scheduled_date")
         # Perform update

@@ -2,7 +2,7 @@ from fastapi import APIRouter, Form, HTTPException, status
 from typing import Annotated
 from enum import Enum
 from datetime import datetime, date
-from main import db_id, db_collection_id3, db_collection_id9
+from main import db_id, db_collection_id9, db_collection_id16
 from db import db
 from appwrite.id import ID
 from audit_utils import write_audit
@@ -16,24 +16,24 @@ class Status(str, Enum):
     ARCHIVED= "Archived"
 
 
-def _resolve_plant_type(plant_type_id: str):
+def _resolve_crop_variety(crop_variety_id: str):
     try:
-        plant = db.get_document(
+        variety = db.get_document(
             database_id=db_id,
-            collection_id=db_collection_id3,
-            document_id=plant_type_id,
+            collection_id=db_collection_id16,
+            document_id=crop_variety_id,
         )
     except Exception as error:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Select a valid plant type for this packaging configuration.",
+            detail="Select a valid crop variety for this packaging configuration.",
         ) from error
-    if str(plant.get("status") or "Active").strip().casefold() != "active":
+    if not str(variety.get("variety_name") or "").strip():
         raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Packaging can only be configured for an active plant type.",
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="The selected crop record does not contain a variety name.",
         )
-    return plant
+    return variety
 
 
 def _validate_package_numbers(weight_capacity, quantity_available, cost_per_unit):
@@ -51,8 +51,9 @@ def _validate_package_numbers(weight_capacity, quantity_available, cost_per_unit
 @collection9_router.post("/package/info")
 def register_package(
         package_name: Annotated[str, Form()],
-        plant_type_id: Annotated[str, Form()],
-        plant_type_name: Annotated[str, Form()],
+        crop_variety_id: Annotated[str, Form()],
+        crop_variety_name: Annotated[str, Form()],
+        crop_name: Annotated[str, Form()],
         material_used: Annotated[str, Form()],
         weight_capacity: Annotated[float, Form()],
         unit: Annotated[str, Form()],
@@ -63,13 +64,18 @@ def register_package(
         updated_at: Annotated[datetime, Form(...)],
         status: Annotated[Status, Form()]
         ):
-    plant = _resolve_plant_type(plant_type_id)
+    variety = _resolve_crop_variety(crop_variety_id)
     _validate_package_numbers(weight_capacity, quantity_available, cost_per_unit)
+    resolved_variety_name = str(variety.get("variety_name") or crop_variety_name).strip()
+    resolved_crop_name = str(variety.get("crop_name") or crop_name).strip()
     package_info = {
         "package_id": ID.unique(),
         "package_name": package_name,
-        "plant_type_id": plant_type_id,
-        "plant_type_name": str(plant.get("plant_name") or plant_type_name).strip(),
+        "crop_variety_id": crop_variety_id,
+        "crop_variety_name": resolved_variety_name,
+        "crop_name": resolved_crop_name,
+        "plant_type_id": crop_variety_id,
+        "plant_type_name": resolved_crop_name,
         "material_used": material_used,
         "weight_capacity": weight_capacity,
         "unit": unit,
@@ -97,7 +103,7 @@ def register_package(
     )
 
     return {
-        "message": "User registered successfully",
+        "message": "Packaging configuration created successfully",
         "package_id": package_create["$id"]
     }
 
@@ -108,9 +114,46 @@ def get_all_package_infos():
             database_id=db_id,
             collection_id=db_collection_id9
         )
-
-        # Extract the list of users
         package_users = result["documents"]
+        legacy_packages = [
+            package
+            for package in package_users
+            if not str(package.get("crop_variety_id") or "").strip()
+        ]
+        if legacy_packages:
+            varieties = db.list_documents(
+                database_id=db_id,
+                collection_id=db_collection_id16,
+            ).get("documents", [])
+            varieties_by_crop = {}
+            for variety in varieties:
+                crop_key = str(variety.get("crop_name") or "").strip().casefold()
+                if crop_key:
+                    varieties_by_crop.setdefault(crop_key, []).append(variety)
+
+            for package in legacy_packages:
+                crop_key = str(package.get("plant_type_name") or "").strip().casefold()
+                matches = varieties_by_crop.get(crop_key, [])
+                if len(matches) != 1:
+                    continue
+                variety = matches[0]
+                migration_data = {
+                    "crop_variety_id": str(variety.get("$id") or ""),
+                    "crop_variety_name": str(variety.get("variety_name") or "").strip(),
+                    "crop_name": str(variety.get("crop_name") or "").strip(),
+                }
+                try:
+                    db.update_document(
+                        database_id=db_id,
+                        collection_id=db_collection_id9,
+                        document_id=package["$id"],
+                        data=migration_data,
+                    )
+                    package.update(migration_data)
+                except Exception:
+                    # The catalog still returns the legacy row so an admin can
+                    # assign its exact variety manually.
+                    pass
 
         return {
             "count": len(package_users),
@@ -137,8 +180,9 @@ def get_package_info(package_id:str):
 @collection9_router.put("/package/{package_id}")
 def update_package(package_id:str,
     package_name: Annotated[str, Form()],
-    plant_type_id: Annotated[str, Form()],
-    plant_type_name: Annotated[str, Form()],
+    crop_variety_id: Annotated[str, Form()],
+    crop_variety_name: Annotated[str, Form()],
+    crop_name: Annotated[str, Form()],
     material_used: Annotated[str, Form()],
     weight_capacity: Annotated[float, Form()],
     unit: Annotated[str, Form()],
@@ -150,8 +194,10 @@ def update_package(package_id:str,
     status: Annotated[Status, Form()]
     ):
     try:
-        plant = _resolve_plant_type(plant_type_id)
+        variety = _resolve_crop_variety(crop_variety_id)
         _validate_package_numbers(weight_capacity, quantity_available, cost_per_unit)
+        resolved_variety_name = str(variety.get("variety_name") or crop_variety_name).strip()
+        resolved_crop_name = str(variety.get("crop_name") or crop_name).strip()
         previous_package = db.get_document(
             database_id=db_id,
             collection_id=db_collection_id9,
@@ -159,8 +205,11 @@ def update_package(package_id:str,
         )
         update_data = {
                   "package_name": package_name,
-                  "plant_type_id": plant_type_id,
-                  "plant_type_name": str(plant.get("plant_name") or plant_type_name).strip(),
+                  "crop_variety_id": crop_variety_id,
+                  "crop_variety_name": resolved_variety_name,
+                  "crop_name": resolved_crop_name,
+                  "plant_type_id": crop_variety_id,
+                  "plant_type_name": resolved_crop_name,
                   "material_used": material_used,
                   "weight_capacity": weight_capacity,
                   "unit": unit,

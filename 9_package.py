@@ -24,6 +24,32 @@ result = db.create_string_attribute(
 result = db.create_string_attribute(
     database_id= db_id,
     collection_id= db_collection_id9,
+    key="crop_variety_id",
+    size= 225,
+    required= False
+)
+
+result = db.create_string_attribute(
+    database_id= db_id,
+    collection_id= db_collection_id9,
+    key="crop_variety_name",
+    size= 225,
+    required= False
+)
+
+result = db.create_string_attribute(
+    database_id= db_id,
+    collection_id= db_collection_id9,
+    key="crop_name",
+    size= 225,
+    required= False
+)
+
+# Retained temporarily because these attributes are required on the existing
+# Appwrite collection. Application logic uses the crop-variety fields above.
+result = db.create_string_attribute(
+    database_id= db_id,
+    collection_id= db_collection_id9,
     key="plant_type_id",
     size= 225,
     required= True

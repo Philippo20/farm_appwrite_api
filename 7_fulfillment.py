@@ -172,6 +172,14 @@ result = db.create_enum_attribute(
     default="Pending Inspection"
 )
 
+result = db.create_string_attribute(
+    database_id= db_id,
+    collection_id= db_collection_id7,
+    key="plant_variety",
+    size= 225,
+    required= False
+)
+
 result = db.create_float_attribute(
     database_id=db_id,
     collection_id=db_collection_id7,
