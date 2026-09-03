@@ -370,7 +370,12 @@ def record_packaging_output(fulfillment_id: str, payload: PackagingRecordPayload
         package_name = str(package_before.get("package_name") or "").strip()
         package_crop = _normalized(package_before.get("plant_type_name"))
         fulfillment_crop = _normalized(fulfillment.get("plant_type"))
-        if package_crop and fulfillment_crop and package_crop != fulfillment_crop:
+        if (
+            package_crop
+            and package_crop not in {"all plant types", "all crops", "all"}
+            and fulfillment_crop
+            and package_crop != fulfillment_crop
+        ):
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail=f"{package_name or 'This package'} is configured for {package_before.get('plant_type_name')}, not {fulfillment.get('plant_type')}.",

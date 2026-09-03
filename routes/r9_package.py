@@ -2,7 +2,7 @@ from fastapi import APIRouter, Form, HTTPException, status
 from typing import Annotated
 from enum import Enum
 from datetime import datetime, date
-from main import db_id, db_collection_id9
+from main import db_id, db_collection_id3, db_collection_id9
 from db import db
 from appwrite.id import ID
 from audit_utils import write_audit
@@ -14,6 +14,39 @@ class Status(str, Enum):
     DAMAGE = "Damaged"
     OUT_OF_STOCK= "Out_of_stock"
     ARCHIVED= "Archived"
+
+
+def _resolve_plant_type(plant_type_id: str):
+    try:
+        plant = db.get_document(
+            database_id=db_id,
+            collection_id=db_collection_id3,
+            document_id=plant_type_id,
+        )
+    except Exception as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Select a valid plant type for this packaging configuration.",
+        ) from error
+    if str(plant.get("status") or "Active").strip().casefold() != "active":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Packaging can only be configured for an active plant type.",
+        )
+    return plant
+
+
+def _validate_package_numbers(weight_capacity, quantity_available, cost_per_unit):
+    if weight_capacity <= 0:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Product capacity must be greater than zero.",
+        )
+    if quantity_available < 0 or cost_per_unit < 0:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Stock and package cost cannot be negative.",
+        )
 
 @collection9_router.post("/package/info")
 def register_package(
@@ -30,11 +63,13 @@ def register_package(
         updated_at: Annotated[datetime, Form(...)],
         status: Annotated[Status, Form()]
         ):
+    plant = _resolve_plant_type(plant_type_id)
+    _validate_package_numbers(weight_capacity, quantity_available, cost_per_unit)
     package_info = {
         "package_id": ID.unique(),
         "package_name": package_name,
         "plant_type_id": plant_type_id,
-        "plant_type_name": plant_type_name,
+        "plant_type_name": str(plant.get("plant_name") or plant_type_name).strip(),
         "material_used": material_used,
         "weight_capacity": weight_capacity,
         "unit": unit,
@@ -115,6 +150,8 @@ def update_package(package_id:str,
     status: Annotated[Status, Form()]
     ):
     try:
+        plant = _resolve_plant_type(plant_type_id)
+        _validate_package_numbers(weight_capacity, quantity_available, cost_per_unit)
         previous_package = db.get_document(
             database_id=db_id,
             collection_id=db_collection_id9,
@@ -123,7 +160,7 @@ def update_package(package_id:str,
         update_data = {
                   "package_name": package_name,
                   "plant_type_id": plant_type_id,
-                  "plant_type_name": plant_type_name,
+                  "plant_type_name": str(plant.get("plant_name") or plant_type_name).strip(),
                   "material_used": material_used,
                   "weight_capacity": weight_capacity,
                   "unit": unit,
@@ -152,6 +189,8 @@ def update_package(package_id:str,
         )
         return {"message": "Package info updated successfully", "user": updated_package_info}
 
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Update failed: {e}")
     
