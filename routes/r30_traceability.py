@@ -51,6 +51,7 @@ def _default_settings() -> Dict[str, Any]:
         "logo_url": "",
         "privacy_notice_url": "",
         "lookup_enabled": True,
+        "maintenance_mode": False,
         "show_farm": True,
         "show_location": True,
         "show_dates": True,
@@ -191,6 +192,7 @@ def _public_config(config: Dict[str, Any]) -> Dict[str, Any]:
         "logo_url": config.get("logo_url"),
         "privacy_notice_url": config.get("privacy_notice_url"),
         "lookup_enabled": config.get("lookup_enabled", True),
+        "maintenance_mode": config.get("maintenance_mode", False),
     }
 
 
@@ -236,6 +238,7 @@ class SettingsPayload(BaseModel):
     logo_url: str = ""
     privacy_notice_url: str = ""
     lookup_enabled: bool = True
+    maintenance_mode: bool = False
     show_farm: bool = True
     show_location: bool = True
     show_dates: bool = True
@@ -442,10 +445,22 @@ def public_traceability_config():
     return {"ok": True, "config": _public_config(_settings())}
 
 
-def _lookup_response(request: Request, trace: Dict[str, Any], metadata: Dict[str, Any]) -> Dict[str, Any]:
+def _available_public_config() -> Dict[str, Any]:
     config = _settings()
+    if config.get("maintenance_mode", False):
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "TRACEABILITY_MAINTENANCE",
+                "message": "Product verification is temporarily unavailable while scheduled maintenance is in progress.",
+            },
+        )
     if not config.get("lookup_enabled", True):
         raise HTTPException(status_code=503, detail={"code": "LOOKUP_DISABLED", "message": "Product verification is temporarily unavailable."})
+    return config
+
+
+def _lookup_response(request: Request, trace: Dict[str, Any], metadata: Dict[str, Any], config: Dict[str, Any]) -> Dict[str, Any]:
     if config.get("analytics_enabled", True):
         _record_event(request, event_type="lookup_success", metadata=metadata, trace=trace)
         db.update_document(database_id=db_id, collection_id=db_collection_id31, document_id=trace["$id"], data={"scan_count": int(trace.get("scan_count") or 0) + 1, "updated_at": _now()})
@@ -455,22 +470,24 @@ def _lookup_response(request: Request, trace: Dict[str, Any], metadata: Dict[str
 
 @traceability_router.post("/public/traceability/lookup", tags=["Public Traceability"])
 def public_lookup(request: Request, payload: LookupPayload):
+    config = _available_public_config()
     trace = _find_trace(batch_number=payload.batch_number)
     metadata = payload.model_dump()
     if trace is None:
-        if _settings().get("analytics_enabled", True):
+        if config.get("analytics_enabled", True):
             _record_event(request, event_type="lookup_failed", metadata=metadata)
         raise HTTPException(status_code=404, detail={"code": "TRACE_NOT_FOUND", "message": "No published product was found for this batch number."})
-    return _lookup_response(request, trace, metadata)
+    return _lookup_response(request, trace, metadata, config)
 
 
 @traceability_router.get("/public/traceability/{public_token}", tags=["Public Traceability"])
 def public_lookup_by_token(request: Request, public_token: str, session_id: str = "", country: str = "", region: str = "", city: str = "", device_type: str = "unknown", referrer: str = ""):
+    config = _available_public_config()
     trace = _find_trace(token=public_token)
     metadata = {"session_id": session_id, "country": country, "region": region, "city": city, "device_type": device_type, "referrer": referrer}
     if trace is None:
         raise HTTPException(status_code=404, detail={"code": "TRACE_NOT_FOUND", "message": "This product link is invalid or is not published."})
-    return _lookup_response(request, trace, metadata)
+    return _lookup_response(request, trace, metadata, config)
 
 
 @traceability_router.post("/public/traceability/events", status_code=status.HTTP_202_ACCEPTED, tags=["Public Traceability"])

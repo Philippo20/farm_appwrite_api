@@ -30,6 +30,7 @@ safe_create("logo_url", lambda: db.create_string_attribute(database_id=db_id, co
 safe_create("privacy_notice_url", lambda: db.create_string_attribute(database_id=db_id, collection_id=db_collection_id30, key="privacy_notice_url", size=1000, required=False, default=""))
 safe_create("updated_by", lambda: db.create_string_attribute(database_id=db_id, collection_id=db_collection_id30, key="updated_by", size=225, required=False, default="system"))
 safe_create("lookup_enabled", lambda: db.create_boolean_attribute(database_id=db_id, collection_id=db_collection_id30, key="lookup_enabled", required=False, default=True))
+safe_create("maintenance_mode", lambda: db.create_boolean_attribute(database_id=db_id, collection_id=db_collection_id30, key="maintenance_mode", required=False, default=False))
 safe_create("show_farm", lambda: db.create_boolean_attribute(database_id=db_id, collection_id=db_collection_id30, key="show_farm", required=False, default=True))
 safe_create("show_location", lambda: db.create_boolean_attribute(database_id=db_id, collection_id=db_collection_id30, key="show_location", required=False, default=True))
 safe_create("show_dates", lambda: db.create_boolean_attribute(database_id=db_id, collection_id=db_collection_id30, key="show_dates", required=False, default=True))
