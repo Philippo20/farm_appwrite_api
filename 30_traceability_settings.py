@@ -38,5 +38,6 @@ safe_create("show_quality", lambda: db.create_boolean_attribute(database_id=db_i
 safe_create("show_journey", lambda: db.create_boolean_attribute(database_id=db_id, collection_id=db_collection_id30, key="show_journey", required=False, default=True))
 safe_create("analytics_enabled", lambda: db.create_boolean_attribute(database_id=db_id, collection_id=db_collection_id30, key="analytics_enabled", required=False, default=True))
 safe_create("promotions_enabled", lambda: db.create_boolean_attribute(database_id=db_id, collection_id=db_collection_id30, key="promotions_enabled", required=False, default=True))
+safe_create("feedback_enabled", lambda: db.create_boolean_attribute(database_id=db_id, collection_id=db_collection_id30, key="feedback_enabled", required=False, default=True))
 safe_create("retention_days", lambda: db.create_integer_attribute(database_id=db_id, collection_id=db_collection_id30, key="retention_days", required=False, default=365, min=30, max=1825))
 safe_create("updated_at", lambda: db.create_datetime_attribute(database_id=db_id, collection_id=db_collection_id30, key="updated_at", required=True))

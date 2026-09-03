@@ -36,6 +36,7 @@ const collectionSpecs = [
   { index: 31, file: '31_batch_traceability.py', name: 'Batch traceability', defaultId: 'batch_traceability' },
   { index: 32, file: '32_traceability_promotions.py', name: 'Traceability promotions', defaultId: 'traceability_promotions' },
   { index: 33, file: '33_traceability_events.py', name: 'Traceability events', defaultId: 'traceability_events' },
+  { index: 34, file: '34_traceability_feedback.py', name: 'Traceability feedback', defaultId: 'traceability_feedback' },
 ];
 
 function selectedCollectionSpecs() {

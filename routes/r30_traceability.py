@@ -1,6 +1,12 @@
 import hashlib
+import ipaddress
+import json
 import os
 import secrets
+import threading
+import time
+import urllib.parse
+import urllib.request
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
@@ -18,12 +24,15 @@ from main import (
     db_collection_id31,
     db_collection_id32,
     db_collection_id33,
+    db_collection_id34,
     db_id,
 )
 
 
 traceability_router = APIRouter()
 SETTINGS_ID = "global"
+_GEO_CACHE: Dict[str, tuple[float, Dict[str, Any]]] = {}
+_GEO_CACHE_LOCK = threading.Lock()
 
 
 def _now() -> str:
@@ -59,6 +68,7 @@ def _default_settings() -> Dict[str, Any]:
         "show_journey": True,
         "analytics_enabled": True,
         "promotions_enabled": True,
+        "feedback_enabled": True,
         "retention_days": 365,
         "updated_by": "system",
         "updated_at": _now(),
@@ -111,10 +121,157 @@ def _find_batch(batch_id: str) -> Dict[str, Any]:
         raise HTTPException(status_code=404, detail="Batch not found") from error
 
 
-def _ip_hash(request: Request) -> str:
-    ip = request.client.host if request.client else "unknown"
+def _client_ip(request: Request) -> str:
+    candidates = [
+        request.headers.get("cf-connecting-ip"),
+        (request.headers.get("x-forwarded-for") or "").split(",")[0],
+        request.headers.get("x-real-ip"),
+        request.client.host if request.client else None,
+    ]
+    for candidate in candidates:
+        value = _clean(candidate).strip('"')
+        if not value:
+            continue
+        if value.startswith("[") and "]" in value:
+            value = value[1:value.index("]")]
+        elif value.count(":") == 1 and "." in value:
+            value = value.split(":", 1)[0]
+        try:
+            return str(ipaddress.ip_address(value))
+        except ValueError:
+            continue
+    return "unknown"
+
+
+def _hash_ip(ip: str) -> str:
     salt = os.getenv("TRACEABILITY_IP_SALT") or "farmestates-traceability"
     return hashlib.sha256(f"{salt}:{ip}".encode("utf-8")).hexdigest()
+
+
+def _masked_ip(ip: str) -> str:
+    try:
+        address = ipaddress.ip_address(ip)
+    except ValueError:
+        return "unknown"
+    if address.version == 4:
+        parts = str(address).split(".")
+        return f"{parts[0]}.{parts[1]}.x.x"
+    parts = address.exploded.split(":")
+    return f"{parts[0]}:{parts[1]}:{parts[2]}::/48"
+
+
+def _device_details(request: Request) -> Dict[str, str]:
+    user_agent = _clean(request.headers.get("user-agent"))
+    ua = user_agent.casefold()
+    mobile_hint = _clean(request.headers.get("sec-ch-ua-mobile"))
+    platform_hint = _clean(request.headers.get("sec-ch-ua-platform")).strip('"')
+    if "ipad" in ua or "tablet" in ua or ("android" in ua and "mobile" not in ua):
+        device_type = "tablet"
+    elif mobile_hint == "?1" or any(value in ua for value in ("mobile", "iphone", "android")):
+        device_type = "mobile"
+    else:
+        device_type = "desktop"
+
+    if "edg/" in ua:
+        browser = "Microsoft Edge"
+    elif "opr/" in ua or "opera" in ua:
+        browser = "Opera"
+    elif "firefox/" in ua or "fxios/" in ua:
+        browser = "Firefox"
+    elif "chrome/" in ua or "crios/" in ua:
+        browser = "Google Chrome"
+    elif "safari/" in ua:
+        browser = "Safari"
+    else:
+        browser = "Unknown"
+
+    if platform_hint:
+        operating_system = platform_hint
+    elif "windows" in ua:
+        operating_system = "Windows"
+    elif "android" in ua:
+        operating_system = "Android"
+    elif "iphone" in ua or "ipad" in ua or "ios" in ua:
+        operating_system = "iOS"
+    elif "mac os" in ua or "macintosh" in ua:
+        operating_system = "macOS"
+    elif "linux" in ua:
+        operating_system = "Linux"
+    else:
+        operating_system = "Unknown"
+    return {
+        "device_type": device_type,
+        "browser": browser,
+        "operating_system": operating_system,
+        "user_agent": user_agent[:1000],
+    }
+
+
+def _geo_details(ip: str, request: Request) -> Dict[str, Any]:
+    details: Dict[str, Any] = {
+        "country": _clean(request.headers.get("cf-ipcountry")),
+        "region": _clean(request.headers.get("cf-region")),
+        "city": _clean(request.headers.get("cf-ipcity")),
+        "latitude": 0.0,
+        "longitude": 0.0,
+        "timezone": _clean(request.headers.get("cf-timezone")),
+        "isp": "",
+    }
+    try:
+        address = ipaddress.ip_address(ip)
+        if not address.is_global:
+            return details
+    except ValueError:
+        return details
+
+    now = time.monotonic()
+    with _GEO_CACHE_LOCK:
+        cached = _GEO_CACHE.get(ip)
+        if cached and now - cached[0] < 3600:
+            return {**details, **cached[1]}
+
+    template = os.getenv("TRACEABILITY_GEOLOOKUP_URL", "https://ipwho.is/{ip}").strip()
+    if not template:
+        return details
+    url = template.replace("{ip}", urllib.parse.quote(ip, safe=""))
+    try:
+        geo_request = urllib.request.Request(
+            url,
+            headers={"Accept": "application/json", "User-Agent": "FarmEstates-Traceability/1.0"},
+        )
+        with urllib.request.urlopen(geo_request, timeout=2.5) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+        if payload.get("success") is False:
+            return details
+        connection = payload.get("connection") if isinstance(payload.get("connection"), dict) else {}
+        timezone_data = payload.get("timezone") if isinstance(payload.get("timezone"), dict) else {}
+        resolved = {
+            "country": _clean(payload.get("country"))[:120],
+            "region": _clean(payload.get("region"))[:160],
+            "city": _clean(payload.get("city"))[:160],
+            "latitude": float(payload.get("latitude") or 0.0),
+            "longitude": float(payload.get("longitude") or 0.0),
+            "timezone": _clean(timezone_data.get("id"))[:120],
+            "isp": _clean(connection.get("isp"))[:225],
+        }
+        with _GEO_CACHE_LOCK:
+            _GEO_CACHE[ip] = (now, resolved)
+            if len(_GEO_CACHE) > 2000:
+                oldest = min(_GEO_CACHE, key=lambda key: _GEO_CACHE[key][0])
+                _GEO_CACHE.pop(oldest, None)
+        return {**details, **resolved}
+    except (OSError, ValueError, TypeError, json.JSONDecodeError):
+        return details
+
+
+def _visitor_context(request: Request) -> Dict[str, Any]:
+    ip = _client_ip(request)
+    return {
+        "ip_hash": _hash_ip(ip),
+        "ip_masked": _masked_ip(ip),
+        **_geo_details(ip, request),
+        **_device_details(request),
+    }
 
 
 def _record_event(
@@ -123,7 +280,9 @@ def _record_event(
     event_type: str,
     metadata: Dict[str, Any],
     trace: Optional[Dict[str, Any]] = None,
+    visitor: Optional[Dict[str, Any]] = None,
 ) -> str:
+    visitor = visitor or _visitor_context(request)
     event_id = ID.unique()
     db.create_document(
         database_id=db_id,
@@ -136,13 +295,20 @@ def _record_event(
             "batch_number": _clean(metadata.get("batch_number") or (trace or {}).get("batch_number")),
             "promotion_id": _clean(metadata.get("promotion_id")),
             "anonymous_session": _clean(metadata.get("session_id"))[:225],
-            "ip_hash": _ip_hash(request),
-            "country": _clean(metadata.get("country"))[:120],
-            "region": _clean(metadata.get("region"))[:160],
-            "city": _clean(metadata.get("city"))[:160],
-            "device_type": (_clean(metadata.get("device_type")) or "unknown")[:80],
+            "ip_hash": visitor["ip_hash"],
+            "ip_masked": visitor["ip_masked"],
+            "country": visitor["country"],
+            "region": visitor["region"],
+            "city": visitor["city"],
+            "latitude": visitor["latitude"],
+            "longitude": visitor["longitude"],
+            "timezone": visitor["timezone"],
+            "isp": visitor["isp"],
+            "device_type": visitor["device_type"],
+            "browser": visitor["browser"],
+            "operating_system": visitor["operating_system"],
             "referrer": _clean(metadata.get("referrer"))[:1000],
-            "user_agent": (_clean(metadata.get("user_agent")) or _clean(request.headers.get("user-agent")))[:1000],
+            "user_agent": visitor["user_agent"],
             "occurred_at": _now(),
         },
     )
@@ -193,6 +359,7 @@ def _public_config(config: Dict[str, Any]) -> Dict[str, Any]:
         "privacy_notice_url": config.get("privacy_notice_url"),
         "lookup_enabled": config.get("lookup_enabled", True),
         "maintenance_mode": config.get("maintenance_mode", False),
+        "feedback_enabled": config.get("feedback_enabled", True),
     }
 
 
@@ -246,6 +413,7 @@ class SettingsPayload(BaseModel):
     show_journey: bool = True
     analytics_enabled: bool = True
     promotions_enabled: bool = True
+    feedback_enabled: bool = True
     retention_days: int = Field(default=365, ge=30, le=1825)
     updated_by: str = "system"
 
@@ -301,6 +469,26 @@ class EventPayload(BaseModel):
     user_agent: str = ""
 
 
+class FeedbackPayload(BaseModel):
+    feedback_type: str = "feedback"
+    category: str = "other"
+    rating: int = Field(default=0, ge=0, le=5)
+    message: str = Field(min_length=5, max_length=4000)
+    public_token: str = ""
+    batch_number: str = ""
+    contact_name: str = Field(default="", max_length=225)
+    contact_email: str = Field(default="", max_length=320)
+    consent_to_contact: bool = False
+    session_id: str = Field(default="", max_length=225)
+
+
+class FeedbackReviewPayload(BaseModel):
+    status: str
+    admin_notes: str = Field(default="", max_length=4000)
+    actor_id: str = "system"
+    actor_role: str = "admin"
+
+
 @traceability_router.get("/traceability/overview", tags=["Traceability Admin"])
 def traceability_overview():
     try:
@@ -309,6 +497,7 @@ def traceability_overview():
         traces = _documents(db_collection_id31)
         promotions = _documents(db_collection_id32)
         events = _documents(db_collection_id33)
+        feedback = _documents(db_collection_id34)
         trace_by_batch = {_clean(item.get("batch_id")): item for item in traces}
         product_rows = []
         for batch in batches:
@@ -340,6 +529,7 @@ def traceability_overview():
             "unique_visitors": unique_visitors,
             "active_promotions": sum(1 for item in promotions if item.get("status") == "active"),
             "failed_lookups": sum(1 for item in events if item.get("event_type") == "lookup_failed"),
+            "open_reports": sum(1 for item in feedback if item.get("status") in {"new", "reviewing"}),
         }
         return {
             "settings": config,
@@ -347,6 +537,7 @@ def traceability_overview():
             "batches": product_rows,
             "promotions": promotions,
             "events": sorted(events, key=lambda item: str(item.get("occurred_at") or ""), reverse=True)[:100],
+            "feedback": sorted(feedback, key=lambda item: str(item.get("created_at") or ""), reverse=True)[:500],
         }
     except Exception as error:
         raise HTTPException(status_code=500, detail=f"Could not load traceability console: {error}") from error
@@ -440,9 +631,117 @@ def delete_promotion(promotion_id: str, actor_id: str = "system", actor_role: st
         raise HTTPException(status_code=404, detail="Promotion not found") from error
 
 
+@traceability_router.put("/traceability/feedback/{feedback_id}", tags=["Traceability Admin"])
+def review_feedback(feedback_id: str, payload: FeedbackReviewPayload):
+    if payload.status not in {"new", "reviewing", "resolved", "closed"}:
+        raise HTTPException(status_code=422, detail="Invalid feedback status")
+    try:
+        previous = db.get_document(
+            database_id=db_id,
+            collection_id=db_collection_id34,
+            document_id=feedback_id,
+        )
+        data = {
+            "status": payload.status,
+            "admin_notes": payload.admin_notes.strip(),
+            "updated_at": _now(),
+        }
+        saved = db.update_document(
+            database_id=db_id,
+            collection_id=db_collection_id34,
+            document_id=feedback_id,
+            data=data,
+        )
+        write_audit(
+            action_type="Update",
+            collection_name="Traceability Feedback",
+            performed_by_id=payload.actor_id,
+            performed_by_role=payload.actor_role,
+            action_details=f"Marked traceability {previous.get('feedback_type', 'feedback')} as {payload.status}",
+            previous_data=previous,
+            new_data=data,
+        )
+        return {"message": "Feedback review updated", "feedback": saved}
+    except AppwriteException as error:
+        raise HTTPException(status_code=404, detail="Feedback record not found") from error
+
+
 @traceability_router.get("/public/traceability/config", tags=["Public Traceability"])
 def public_traceability_config():
     return {"ok": True, "config": _public_config(_settings())}
+
+
+@traceability_router.post(
+    "/public/traceability/feedback",
+    status_code=status.HTTP_201_CREATED,
+    tags=["Public Traceability"],
+)
+def submit_public_feedback(request: Request, payload: FeedbackPayload):
+    config = _settings()
+    if not config.get("feedback_enabled", True):
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "FEEDBACK_DISABLED",
+                "message": "Feedback submissions are temporarily unavailable.",
+            },
+        )
+    if payload.feedback_type not in {"feedback", "issue"}:
+        raise HTTPException(status_code=422, detail="feedback_type must be feedback or issue")
+    if payload.category not in {"product_quality", "packaging", "delivery", "traceability", "other"}:
+        raise HTTPException(status_code=422, detail="Invalid feedback category")
+    if payload.feedback_type == "feedback" and payload.rating not in {1, 2, 3, 4, 5}:
+        raise HTTPException(status_code=422, detail="A rating from 1 to 5 is required for feedback")
+    if payload.consent_to_contact and not payload.contact_email.strip():
+        raise HTTPException(status_code=422, detail="Contact email is required when follow-up consent is enabled")
+    if payload.contact_email and ("@" not in payload.contact_email or "." not in payload.contact_email.rsplit("@", 1)[-1]):
+        raise HTTPException(status_code=422, detail="Enter a valid contact email")
+
+    trace = _find_trace(batch_number=payload.batch_number, token=payload.public_token)
+    visitor = _visitor_context(request)
+    feedback_id = ID.unique()
+    now = _now()
+    data = {
+        "feedback_id": feedback_id,
+        "trace_id": _clean((trace or {}).get("trace_id")),
+        "batch_number": _clean(payload.batch_number or (trace or {}).get("batch_number")),
+        "public_token": _clean(payload.public_token or (trace or {}).get("public_token")),
+        "feedback_type": payload.feedback_type,
+        "category": payload.category,
+        "rating": payload.rating if payload.feedback_type == "feedback" else 0,
+        "message": payload.message.strip(),
+        "contact_name": payload.contact_name.strip(),
+        "contact_email": payload.contact_email.strip().lower(),
+        "consent_to_contact": payload.consent_to_contact,
+        "anonymous_session": payload.session_id.strip(),
+        "ip_hash": visitor["ip_hash"],
+        "ip_masked": visitor["ip_masked"],
+        "country": visitor["country"],
+        "region": visitor["region"],
+        "city": visitor["city"],
+        "latitude": visitor["latitude"],
+        "longitude": visitor["longitude"],
+        "timezone": visitor["timezone"],
+        "isp": visitor["isp"],
+        "device_type": visitor["device_type"],
+        "browser": visitor["browser"],
+        "operating_system": visitor["operating_system"],
+        "status": "new",
+        "admin_notes": "",
+        "created_at": now,
+        "updated_at": now,
+    }
+    db.create_document(
+        database_id=db_id,
+        collection_id=db_collection_id34,
+        document_id=feedback_id,
+        data=data,
+    )
+    return {
+        "ok": True,
+        "feedback_id": feedback_id,
+        "message": "Thank you. Your feedback has been received.",
+    }
 
 
 def _available_public_config() -> Dict[str, Any]:
@@ -461,10 +760,11 @@ def _available_public_config() -> Dict[str, Any]:
 
 
 def _lookup_response(request: Request, trace: Dict[str, Any], metadata: Dict[str, Any], config: Dict[str, Any]) -> Dict[str, Any]:
+    visitor = _visitor_context(request)
     if config.get("analytics_enabled", True):
-        _record_event(request, event_type="lookup_success", metadata=metadata, trace=trace)
+        _record_event(request, event_type="lookup_success", metadata=metadata, trace=trace, visitor=visitor)
         db.update_document(database_id=db_id, collection_id=db_collection_id31, document_id=trace["$id"], data={"scan_count": int(trace.get("scan_count") or 0) + 1, "updated_at": _now()})
-    promotion = _active_promotion(trace, _clean(metadata.get("region"))) if config.get("promotions_enabled", True) else None
+    promotion = _active_promotion(trace, visitor["region"]) if config.get("promotions_enabled", True) else None
     return {"ok": True, "verified": trace.get("recall_status") != "recalled", "trace": _public_trace(trace, config), "promotion": promotion, "config": _public_config(config)}
 
 
