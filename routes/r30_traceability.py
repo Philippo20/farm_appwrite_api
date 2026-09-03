@@ -121,26 +121,53 @@ def _find_batch(batch_id: str) -> Dict[str, Any]:
         raise HTTPException(status_code=404, detail="Batch not found") from error
 
 
-def _client_ip(request: Request) -> str:
-    candidates = [
-        request.headers.get("cf-connecting-ip"),
-        (request.headers.get("x-forwarded-for") or "").split(",")[0],
-        request.headers.get("x-real-ip"),
-        request.client.host if request.client else None,
-    ]
-    for candidate in candidates:
-        value = _clean(candidate).strip('"')
+def _trusted_proxy_request(request: Request) -> bool:
+    expected = os.getenv("TRACEABILITY_PROXY_SECRET", "").strip()
+    supplied = _clean(request.headers.get("x-traceability-proxy-key"))
+    return bool(expected and supplied and secrets.compare_digest(expected, supplied))
+
+
+def _normalize_ip(candidate: Any) -> str:
+    value = _clean(candidate).split(",", 1)[0].strip().strip('"')
+    if not value:
+        return ""
+    if value.startswith("[") and "]" in value:
+        value = value[1:value.index("]")]
+    elif value.count(":") == 1 and "." in value:
+        value = value.split(":", 1)[0]
+    try:
+        return str(ipaddress.ip_address(value))
+    except ValueError:
+        return ""
+
+
+def _client_ip_details(request: Request) -> tuple[str, str]:
+    configured_header = os.getenv(
+        "TRACEABILITY_CLIENT_IP_HEADER", "do-connecting-ip"
+    ).strip().lower()
+    candidates: List[tuple[str, Any]] = []
+    if _trusted_proxy_request(request):
+        candidates.append(("trusted-proxy", request.headers.get("x-visitor-ip")))
+    if configured_header:
+        candidates.append((configured_header, request.headers.get(configured_header)))
+    if configured_header != "do-connecting-ip":
+        candidates.append(("do-connecting-ip", request.headers.get("do-connecting-ip")))
+    candidates.extend(
+        [
+            ("x-real-ip", request.headers.get("x-real-ip")),
+            ("socket", request.client.host if request.client else None),
+        ]
+    )
+    for source, candidate in candidates:
+        value = _normalize_ip(candidate)
         if not value:
             continue
-        if value.startswith("[") and "]" in value:
-            value = value[1:value.index("]")]
-        elif value.count(":") == 1 and "." in value:
-            value = value.split(":", 1)[0]
-        try:
-            return str(ipaddress.ip_address(value))
-        except ValueError:
-            continue
-    return "unknown"
+        return value, source
+    return "unknown", "unavailable"
+
+
+def _client_ip(request: Request) -> str:
+    return _client_ip_details(request)[0]
 
 
 def _hash_ip(ip: str) -> str:
@@ -161,10 +188,26 @@ def _masked_ip(ip: str) -> str:
 
 
 def _device_details(request: Request) -> Dict[str, str]:
-    user_agent = _clean(request.headers.get("user-agent"))
+    trusted_proxy = _trusted_proxy_request(request)
+    forwarded_user_agent = _clean(request.headers.get("x-visitor-user-agent"))
+    user_agent = (
+        forwarded_user_agent
+        if trusted_proxy and forwarded_user_agent
+        else _clean(request.headers.get("user-agent"))
+    )
     ua = user_agent.casefold()
-    mobile_hint = _clean(request.headers.get("sec-ch-ua-mobile"))
-    platform_hint = _clean(request.headers.get("sec-ch-ua-platform")).strip('"')
+    forwarded_mobile = _clean(request.headers.get("x-visitor-mobile"))
+    mobile_hint = (
+        forwarded_mobile
+        if trusted_proxy and forwarded_mobile
+        else _clean(request.headers.get("sec-ch-ua-mobile"))
+    )
+    forwarded_platform = _clean(request.headers.get("x-visitor-platform"))
+    platform_hint = (
+        forwarded_platform
+        if trusted_proxy and forwarded_platform
+        else _clean(request.headers.get("sec-ch-ua-platform"))
+    ).strip('"')
     if "ipad" in ua or "tablet" in ua or ("android" in ua and "mobile" not in ua):
         device_type = "tablet"
     elif mobile_hint == "?1" or any(value in ua for value in ("mobile", "iphone", "android")):
@@ -265,10 +308,11 @@ def _geo_details(ip: str, request: Request) -> Dict[str, Any]:
 
 
 def _visitor_context(request: Request) -> Dict[str, Any]:
-    ip = _client_ip(request)
+    ip, ip_source = _client_ip_details(request)
     return {
         "ip_hash": _hash_ip(ip),
         "ip_masked": _masked_ip(ip),
+        "ip_source": ip_source,
         **_geo_details(ip, request),
         **_device_details(request),
     }
@@ -297,6 +341,7 @@ def _record_event(
             "anonymous_session": _clean(metadata.get("session_id"))[:225],
             "ip_hash": visitor["ip_hash"],
             "ip_masked": visitor["ip_masked"],
+            "ip_source": visitor["ip_source"],
             "country": visitor["country"],
             "region": visitor["region"],
             "city": visitor["city"],
@@ -716,6 +761,7 @@ def submit_public_feedback(request: Request, payload: FeedbackPayload):
         "anonymous_session": payload.session_id.strip(),
         "ip_hash": visitor["ip_hash"],
         "ip_masked": visitor["ip_masked"],
+        "ip_source": visitor["ip_source"],
         "country": visitor["country"],
         "region": visitor["region"],
         "city": visitor["city"],

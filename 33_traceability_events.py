@@ -26,6 +26,7 @@ safe_create("promotion_id", lambda: db.create_string_attribute(database_id=db_id
 safe_create("anonymous_session", lambda: db.create_string_attribute(database_id=db_id, collection_id=db_collection_id33, key="anonymous_session", size=225, required=False, default=""))
 safe_create("ip_hash", lambda: db.create_string_attribute(database_id=db_id, collection_id=db_collection_id33, key="ip_hash", size=225, required=False, default=""))
 safe_create("ip_masked", lambda: db.create_string_attribute(database_id=db_id, collection_id=db_collection_id33, key="ip_masked", size=120, required=False, default=""))
+safe_create("ip_source", lambda: db.create_string_attribute(database_id=db_id, collection_id=db_collection_id33, key="ip_source", size=80, required=False, default=""))
 safe_create("country", lambda: db.create_string_attribute(database_id=db_id, collection_id=db_collection_id33, key="country", size=120, required=False, default=""))
 safe_create("region", lambda: db.create_string_attribute(database_id=db_id, collection_id=db_collection_id33, key="region", size=160, required=False, default=""))
 safe_create("city", lambda: db.create_string_attribute(database_id=db_id, collection_id=db_collection_id33, key="city", size=160, required=False, default=""))

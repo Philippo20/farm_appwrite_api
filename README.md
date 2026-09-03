@@ -37,7 +37,7 @@ The repository includes a `Dockerfile` for deployment. Provide environment varia
 
 ## Public traceability integration
 
-The public traceability site must send a `page_view` event when the experience opens. The API derives the visitor's approximate IP location and device details from the request; the browser must not send or store a raw IP address.
+The public traceability site must send a `page_view` event when the experience opens. Prefer calling the API directly from the visitor's browser. DigitalOcean App Platform exposes the original browser address in `DO-Connecting-IP`, which this API uses by default, while the normal browser `User-Agent` supplies the device details. The browser must not obtain or submit its raw IP address.
 
 ```http
 POST /public/traceability/events
@@ -74,6 +74,18 @@ Content-Type: application/json
 For an issue, use `feedback_type: "issue"`; `rating` may be `0`. Supported categories are `product_quality`, `packaging`, `delivery`, `traceability`, and `other`. Contact email is required only when `consent_to_contact` is true. A successful submission returns HTTP `201` with `ok`, `feedback_id`, and a user-safe message. Display validation messages from the API's `detail` field inside the form.
 
 Set `TRACEABILITY_GEOLOOKUP_URL=https://ipwho.is/{ip}` in production to enable city, region, country, coordinates, timezone, and ISP lookup. Exact IPs are not persisted: events retain a salted hash for unique-visitor counting and a masked value for support diagnostics.
+
+If the public site must proxy traceability calls through its own server, configure the same long random `TRACEABILITY_PROXY_SECRET` on the public-site server and API. The proxy must copy its platform's authoritative original-client IP and the incoming browser metadata into these headers:
+
+```http
+X-Traceability-Proxy-Key: <server-only shared secret>
+X-Visitor-IP: <original client IP from the public site's hosting platform>
+X-Visitor-User-Agent: <incoming browser User-Agent>
+X-Visitor-Platform: <incoming Sec-CH-UA-Platform, optional>
+X-Visitor-Mobile: <incoming Sec-CH-UA-Mobile, optional>
+```
+
+Never expose `TRACEABILITY_PROXY_SECRET` in browser JavaScript. The API ignores these forwarding headers unless the shared secret matches. For a non-DigitalOcean API deployment, set `TRACEABILITY_CLIENT_IP_HEADER` to that platform's authoritative client-IP header; do not use `X-Forwarded-For` on DigitalOcean App Platform because it identifies the ingress server.
 
 ## Related repository
 
