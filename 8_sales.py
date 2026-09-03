@@ -31,6 +31,69 @@ result = db.create_string_attribute(
 )
 
 result = db.create_string_attribute(
+    database_id=db_id,
+    collection_id=db_collection_id8,
+    key="fulfillment_id",
+    size=225,
+    required=False,
+    default=""
+)
+
+result = db.create_string_attribute(
+    database_id=db_id,
+    collection_id=db_collection_id8,
+    key="crop_variety",
+    size=225,
+    required=False,
+    default=""
+)
+
+result = db.create_string_attribute(
+    database_id=db_id,
+    collection_id=db_collection_id8,
+    key="package_type",
+    size=225,
+    required=False,
+    default=""
+)
+
+result = db.create_integer_attribute(
+    database_id=db_id,
+    collection_id=db_collection_id8,
+    key="package_count",
+    required=False,
+    min=0,
+    default=0
+)
+
+result = db.create_float_attribute(
+    database_id=db_id,
+    collection_id=db_collection_id8,
+    key="unit_weight_kg",
+    required=False,
+    min=0,
+    default=0
+)
+
+result = db.create_string_attribute(
+    database_id=db_id,
+    collection_id=db_collection_id8,
+    key="delivery_address",
+    size=500,
+    required=False,
+    default=""
+)
+
+result = db.create_string_attribute(
+    database_id=db_id,
+    collection_id=db_collection_id8,
+    key="delivery_notes",
+    size=1000,
+    required=False,
+    default=""
+)
+
+result = db.create_string_attribute(
     database_id= db_id,
     collection_id= db_collection_id8,
     key="buyer_id",
@@ -59,6 +122,20 @@ result = db.create_datetime_attribute(
     collection_id= db_collection_id8,
     key="delivered_at",
     required= True
+)
+
+result = db.create_datetime_attribute(
+    database_id=db_id,
+    collection_id=db_collection_id8,
+    key="scheduled_for",
+    required=False
+)
+
+result = db.create_datetime_attribute(
+    database_id=db_id,
+    collection_id=db_collection_id8,
+    key="completed_at",
+    required=False
 )
 
 result = db.create_float_attribute(
