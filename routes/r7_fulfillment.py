@@ -3,7 +3,13 @@ from typing import Annotated
 from enum import Enum
 from datetime import datetime, date, timezone
 from pydantic import BaseModel, Field
-from main import db_id, db_collection_id5, db_collection_id7
+from main import (
+    db_id,
+    db_collection_id1,
+    db_collection_id5,
+    db_collection_id7,
+    db_collection_id9,
+)
 from db import db
 from appwrite.id import ID
 from audit_utils import write_audit
@@ -52,6 +58,17 @@ class HarvestReleasePayload(BaseModel):
     released_by_name: str = Field(default="Fulfillment Manager", max_length=225)
 
 
+class PackagingRecordPayload(BaseModel):
+    package_id: str = Field(min_length=1, max_length=225)
+    package_count: int = Field(ge=1)
+    waste_weight: float = Field(default=0, ge=0)
+    waste_type: str = Field(default="None", max_length=225)
+    notes: str = Field(default="", max_length=1000)
+    complete: bool = False
+    recorded_by_id: str = Field(min_length=1, max_length=225)
+    recorded_by_name: str = Field(default="Packaging Supervisor", max_length=225)
+
+
 def _batch_number(batch):
     return str(batch.get("batch_no") or batch.get("batch_id") or batch.get("$id") or "").strip()
 
@@ -70,6 +87,31 @@ def _find_fulfillment_for_batch(batch_number):
         ),
         None,
     )
+
+
+def _package_weight_kg(package):
+    capacity = float(package.get("weight_capacity") or 0)
+    unit = str(package.get("unit") or "kg").strip().casefold()
+    if unit in {"g", "gram", "grams"}:
+        return capacity / 1000
+    if unit in {"mg", "milligram", "milligrams"}:
+        return capacity / 1_000_000
+    if unit in {"lb", "lbs", "pound", "pounds"}:
+        return capacity * 0.45359237
+    if unit in {"oz", "ounce", "ounces"}:
+        return capacity * 0.028349523125
+    return capacity
+
+
+def _number(value):
+    try:
+        return float(value or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _normalized(value):
+    return str(value or "").strip().casefold()
 
 
 @collection7_router.post("/fulfillments/intake/{batch_id}/inspect")
@@ -291,6 +333,222 @@ def release_harvest_to_packaging(batch_id: str, payload: HarvestReleasePayload):
         raise
     except Exception as error:
         raise HTTPException(status_code=500, detail=f"Could not release harvest: {error}") from error
+
+
+@collection7_router.post("/fulfillments/{fulfillment_id}/packaging-record")
+def record_packaging_output(fulfillment_id: str, payload: PackagingRecordPayload):
+    """Record one packaging run and keep material stock and fulfillment totals in sync."""
+    package_before = None
+    try:
+        fulfillment = db.get_document(
+            database_id=db_id,
+            collection_id=db_collection_id7,
+            document_id=fulfillment_id,
+        )
+        current_status = str(fulfillment.get("status") or "").strip()
+        if current_status != Status.INACTIVE.value:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    "Only batches released to Packaging can be recorded."
+                    if current_status != Status.PENDING.value
+                    else "This batch has already completed packaging."
+                ),
+            )
+
+        package_before = db.get_document(
+            database_id=db_id,
+            collection_id=db_collection_id9,
+            document_id=payload.package_id,
+        )
+        if _normalized(package_before.get("status")) != "active":
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="The selected packaging material is not active.",
+            )
+
+        package_name = str(package_before.get("package_name") or "").strip()
+        package_crop = _normalized(package_before.get("plant_type_name"))
+        fulfillment_crop = _normalized(fulfillment.get("plant_type"))
+        if package_crop and fulfillment_crop and package_crop != fulfillment_crop:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"{package_name or 'This package'} is configured for {package_before.get('plant_type_name')}, not {fulfillment.get('plant_type')}.",
+            )
+
+        previous_type = str(fulfillment.get("packaging_type") or "").strip()
+        if (
+            _number(fulfillment.get("total_packaged_weight")) > 0
+            and previous_type
+            and _normalized(previous_type) not in {"pending assignment", _normalized(package_name)}
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"This batch is already being recorded with {previous_type}.",
+            )
+
+        available = _number(package_before.get("quantity_available"))
+        if available < payload.package_count:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Only {available:g} package units are available.",
+            )
+
+        unit_weight_kg = _package_weight_kg(package_before)
+        if unit_weight_kg <= 0:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="The selected package needs a valid weight capacity.",
+            )
+
+        previous_output = _number(fulfillment.get("total_packaged_weight"))
+        previous_waste = _number(fulfillment.get("packaging_waste_weight"))
+        received_weight = _number(fulfillment.get("total_weight"))
+        entry_output = unit_weight_kg * payload.package_count
+        new_output = previous_output + entry_output
+        new_waste = previous_waste + payload.waste_weight
+        tolerance = max(0.05, received_weight * 0.02)
+        if received_weight > 0 and new_output + new_waste > received_weight + tolerance:
+            remaining = max(0.0, received_weight - previous_output - previous_waste)
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"This entry exceeds the remaining received weight of {remaining:.2f} kg.",
+            )
+        if (
+            payload.complete
+            and received_weight > 0
+            and received_weight - new_output - new_waste > tolerance
+        ):
+            unaccounted = received_weight - new_output - new_waste
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"Account for the remaining {unaccounted:.2f} kg as packaged output or waste before completing this batch.",
+            )
+
+        now = datetime.now(timezone.utc).isoformat()
+        existing_notes = str(fulfillment.get("delivery_note") or "").strip()
+        entry_notes = payload.notes.strip()
+        combined_notes = existing_notes
+        if entry_notes:
+            note_line = f"Packaging: {entry_notes}"
+            combined_notes = f"{existing_notes}\n{note_line}".strip()[-1000:]
+
+        fulfillment_update = {
+            "packaging_supervisor_id": payload.recorded_by_id,
+            "packaging_type": package_name or "Packaging material",
+            "packaging_weight": round(unit_weight_kg, 6),
+            "total_packaged_weight": round(new_output, 6),
+            "packaging_waste_type": (
+                payload.waste_type.strip() or "Other"
+                if payload.waste_weight > 0
+                else str(fulfillment.get("packaging_waste_type") or "None")
+            ),
+            "packaging_waste_weight": round(new_waste, 6),
+            "yield_loss_percentage": (
+                round(new_waste / received_weight * 100, 2) if received_weight > 0 else 0.0
+            ),
+            "packaging_date_time": now,
+            "status": Status.PENDING.value if payload.complete else Status.INACTIVE.value,
+            "eta": "Packaging completed" if payload.complete else "Packaging in progress",
+            "delivery_note": combined_notes,
+        }
+        package_update = {
+            "quantity_available": available - payload.package_count,
+            "updated_at": now,
+            "status": (
+                "Out_of_stock"
+                if available - payload.package_count <= 0
+                else str(package_before.get("status") or "Active")
+            ),
+        }
+
+        db.update_document(
+            database_id=db_id,
+            collection_id=db_collection_id9,
+            document_id=payload.package_id,
+            data=package_update,
+        )
+        try:
+            saved = db.update_document(
+                database_id=db_id,
+                collection_id=db_collection_id7,
+                document_id=fulfillment_id,
+                data=fulfillment_update,
+            )
+        except Exception:
+            db.update_document(
+                database_id=db_id,
+                collection_id=db_collection_id9,
+                document_id=payload.package_id,
+                data={
+                    "quantity_available": available,
+                    "updated_at": str(package_before.get("updated_at") or now),
+                    "status": str(package_before.get("status") or "Active"),
+                },
+            )
+            raise
+
+        write_audit(
+            action_type="Update",
+            collection_name="Fulfillment",
+            performed_by_id=payload.recorded_by_id,
+            performed_by_role="packaging_supervisor",
+            action_details=(
+                f"Recorded {payload.package_count} {package_name or 'package'} units "
+                f"for batch {fulfillment.get('batch_number')}"
+            ),
+            previous_data=fulfillment,
+            new_data=fulfillment_update,
+        )
+        write_audit(
+            action_type="Update",
+            collection_name="Package",
+            performed_by_id=payload.recorded_by_id,
+            performed_by_role="packaging_supervisor",
+            action_details=f"Used {payload.package_count} units of {package_name}",
+            previous_data=package_before,
+            new_data=package_update,
+        )
+
+        if payload.complete:
+            try:
+                users = db.list_documents(
+                    database_id=db_id,
+                    collection_id=db_collection_id1,
+                ).get("documents", [])
+                for user in users:
+                    if _normalized(user.get("role")) != "quality_officer":
+                        continue
+                    recipient_id = str(user.get("$id") or user.get("user_id") or "").strip()
+                    if not recipient_id:
+                        continue
+                    create_notification(
+                        recipient_id=recipient_id,
+                        recipient_name=str(user.get("name") or "Quality Assurance"),
+                        title="Batch ready for quality inspection",
+                        message=f"Batch {fulfillment.get('batch_number')} has completed packaging.",
+                        notification_type="batch",
+                        priority="high",
+                    )
+            except Exception as notification_error:
+                print(f"Packaging completion notification failed: {notification_error}")
+
+        return {
+            "message": "Packaging completed" if payload.complete else "Packaging output recorded",
+            "fulfillment": saved,
+            "entry": {
+                "package_name": package_name,
+                "package_count": payload.package_count,
+                "unit_weight_kg": unit_weight_kg,
+                "output_weight_kg": entry_output,
+                "waste_weight_kg": payload.waste_weight,
+            },
+            "package_stock_remaining": available - payload.package_count,
+        }
+    except HTTPException:
+        raise
+    except Exception as error:
+        raise HTTPException(status_code=500, detail=f"Could not record packaging output: {error}") from error
 
 @collection7_router.post("/fulfillment/info")
 def register_fulfillment(
