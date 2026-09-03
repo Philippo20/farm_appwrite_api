@@ -97,6 +97,15 @@ result = db.create_float_attribute(
     required= True,
 )
 
+result = db.create_integer_attribute(
+    database_id=db_id,
+    collection_id=db_collection_id7,
+    key="total_package_count",
+    required=False,
+    min=0,
+    default=0
+)
+
 result = db.create_string_attribute(
     database_id= db_id,
     collection_id= db_collection_id7,

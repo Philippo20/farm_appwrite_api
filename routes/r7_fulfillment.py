@@ -150,6 +150,17 @@ def _number(value):
         return 0.0
 
 
+def _total_package_count(fulfillment):
+    recorded_count = int(round(_number(fulfillment.get("total_package_count"))))
+    if recorded_count > 0:
+        return recorded_count
+    packaged_weight = _number(fulfillment.get("total_packaged_weight"))
+    unit_weight = _number(fulfillment.get("packaging_weight"))
+    if packaged_weight <= 0 or unit_weight <= 0:
+        return 0
+    return max(0, int(round(packaged_weight / unit_weight)))
+
+
 def _normalized(value):
     return str(value or "").strip().casefold()
 
@@ -321,10 +332,17 @@ def record_quality_decision(fulfillment_id: str, payload: QualityDecisionPayload
 
         try:
             if approved:
+                package_count = _total_package_count(fulfillment)
+                packaged_weight = _number(
+                    fulfillment.get("total_packaged_weight")
+                )
                 _notify_roles(
                     {"sales_manager", "sales_personnel", "fulfillment_manager"},
                     title="Batch approved for sales",
-                    message=f"Batch {batch_number} passed quality assurance and is ready for sales.",
+                    message=(
+                        f"Batch {batch_number} passed quality assurance with "
+                        f"{package_count} packs ({packaged_weight:.2f} kg) ready for sales."
+                    ),
                     priority="high",
                 )
             else:
@@ -395,6 +413,7 @@ def inspect_harvest_intake(batch_id: str, payload: HarvestInspectionPayload):
             "packaging_type": payload.packaging_type.strip() or "Pending assignment",
             "packaging_weight": 0.0,
             "total_packaged_weight": 0.0,
+            "total_package_count": 0,
             "packaging_waste_type": "None",
             "packaging_waste_weight": 0.0,
             "packaging_images": "",
@@ -653,10 +672,12 @@ def record_packaging_output(fulfillment_id: str, payload: PackagingRecordPayload
             )
 
         previous_output = _number(fulfillment.get("total_packaged_weight"))
+        previous_package_count = _total_package_count(fulfillment)
         previous_waste = _number(fulfillment.get("packaging_waste_weight"))
         received_weight = _number(fulfillment.get("total_weight"))
         entry_output = unit_weight_kg * payload.package_count
         new_output = previous_output + entry_output
+        new_package_count = previous_package_count + payload.package_count
         new_waste = previous_waste + payload.waste_weight
         tolerance = max(0.05, received_weight * 0.02)
         if received_weight > 0 and new_output + new_waste > received_weight + tolerance:
@@ -689,6 +710,7 @@ def record_packaging_output(fulfillment_id: str, payload: PackagingRecordPayload
             "packaging_type": package_name or "Packaging material",
             "packaging_weight": round(unit_weight_kg, 6),
             "total_packaged_weight": round(new_output, 6),
+            "total_package_count": new_package_count,
             "packaging_waste_type": (
                 payload.waste_type.strip() or "Other"
                 if payload.waste_weight > 0
@@ -746,7 +768,8 @@ def record_packaging_output(fulfillment_id: str, payload: PackagingRecordPayload
             performed_by_role="packaging_supervisor",
             action_details=(
                 f"Recorded {payload.package_count} {package_name or 'package'} units "
-                f"for batch {fulfillment.get('batch_number')}"
+                f"for batch {fulfillment.get('batch_number')} "
+                f"({new_package_count} packs total)"
             ),
             previous_data=fulfillment,
             new_data=fulfillment_update,
@@ -833,7 +856,8 @@ def register_fulfillment(
         temperature: Annotated[str, Form()] = "N/A",
         priority: Annotated[DeliveryPriority, Form()] = DeliveryPriority.MEDIUM,
         delivery_note: Annotated[str, Form()] = "",
-        plant_variety: Annotated[str, Form()] = ""
+        plant_variety: Annotated[str, Form()] = "",
+        total_package_count: Annotated[int, Form()] = 0
         ):
     audits_info = {
         "fulfillment_id": ID.unique(),
@@ -849,6 +873,7 @@ def register_fulfillment(
         "packaging_type": packaging_type,
         "packaging_weight": packaging_weight,
         "total_packaged_weight": total_packaged_weight,
+        "total_package_count": max(0, total_package_count),
         "packaging_waste_type": packaging_waste_type,
         "packaging_waste_weight": packaging_waste_weight,
         "packaging_images": packaging_images,
@@ -936,6 +961,24 @@ def get_all_fulfillment_infos():
                     pass
                 item["plant_variety"] = variety
 
+        for item in audit_users:
+            current_count = int(round(_number(item.get("total_package_count"))))
+            if current_count > 0:
+                continue
+            derived_count = _total_package_count(item)
+            if derived_count <= 0:
+                continue
+            try:
+                db.update_document(
+                    database_id=db_id,
+                    collection_id=db_collection_id7,
+                    document_id=item["$id"],
+                    data={"total_package_count": derived_count},
+                )
+            except Exception:
+                pass
+            item["total_package_count"] = derived_count
+
         return {
             "count": len(audit_users),
             "users": audit_users
@@ -990,7 +1033,8 @@ def update_fulfillment(fulfillment_id:str,
     temperature: Annotated[str, Form()] = "N/A",
     priority: Annotated[DeliveryPriority, Form()] = DeliveryPriority.MEDIUM,
     delivery_note: Annotated[str, Form()] = "",
-    plant_variety: Annotated[str | None, Form()] = None
+    plant_variety: Annotated[str | None, Form()] = None,
+    total_package_count: Annotated[int | None, Form()] = None
     ):
     try:
         previous_fulfillment = db.get_document(
@@ -1031,6 +1075,8 @@ def update_fulfillment(fulfillment_id:str,
             }
         if plant_variety is not None:
             update_data["plant_variety"] = plant_variety.strip()
+        if total_package_count is not None:
+            update_data["total_package_count"] = max(0, total_package_count)
         if update_data["scheduled_date"] is None:
             update_data.pop("scheduled_date")
         # Perform update
