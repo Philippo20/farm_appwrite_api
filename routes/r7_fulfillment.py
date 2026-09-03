@@ -1,11 +1,13 @@
 from fastapi import APIRouter, Form, HTTPException, status
 from typing import Annotated
 from enum import Enum
-from datetime import datetime, date
-from main import db_id, db_collection_id7
+from datetime import datetime, date, timezone
+from pydantic import BaseModel, Field
+from main import db_id, db_collection_id5, db_collection_id7
 from db import db
 from appwrite.id import ID
 from audit_utils import write_audit
+from routes.r25_notifications import create_notification
 
 collection7_router = APIRouter(tags=["Fulfillment"])
 
@@ -30,6 +32,265 @@ class DeliveryPriority(str, Enum):
     HIGH = "High"
     MEDIUM = "Medium"
     LOW = "Low"
+
+
+class HarvestInspectionPayload(BaseModel):
+    total_heads: float = Field(ge=0)
+    total_weight: float = Field(ge=0)
+    packaging_supervisor_id: str = Field(default="Unassigned", max_length=225)
+    packaging_type: str = Field(default="Pending assignment", max_length=225)
+    temperature: str = Field(default="N/A", max_length=50)
+    priority: DeliveryPriority = DeliveryPriority.MEDIUM
+    notes: str = Field(default="", max_length=1000)
+    inspected_by_id: str = Field(default="system", max_length=225)
+    inspected_by_name: str = Field(default="Fulfillment Manager", max_length=225)
+    inspection_confirmed: bool = False
+
+
+class HarvestReleasePayload(BaseModel):
+    released_by_id: str = Field(default="system", max_length=225)
+    released_by_name: str = Field(default="Fulfillment Manager", max_length=225)
+
+
+def _batch_number(batch):
+    return str(batch.get("batch_no") or batch.get("batch_id") or batch.get("$id") or "").strip()
+
+
+def _find_fulfillment_for_batch(batch_number):
+    normalized = batch_number.casefold()
+    result = db.list_documents(
+        database_id=db_id,
+        collection_id=db_collection_id7,
+    )
+    return next(
+        (
+            item
+            for item in result.get("documents", [])
+            if str(item.get("batch_number") or "").strip().casefold() == normalized
+        ),
+        None,
+    )
+
+
+@collection7_router.post("/fulfillments/intake/{batch_id}/inspect")
+def inspect_harvest_intake(batch_id: str, payload: HarvestInspectionPayload):
+    if not payload.inspection_confirmed:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Confirm that the intake inspection has been completed.",
+        )
+    if payload.total_heads <= 0 and payload.total_weight <= 0:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Enter the received head count or received weight.",
+        )
+
+    try:
+        batch = db.get_document(
+            database_id=db_id,
+            collection_id=db_collection_id5,
+            document_id=batch_id,
+        )
+        batch_status = str(batch.get("production_status") or "").strip().casefold()
+        if batch_status not in {"harvested", "delivered"}:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Only harvested batches can enter fulfillment intake.",
+            )
+
+        batch_number = _batch_number(batch)
+        existing = _find_fulfillment_for_batch(batch_number)
+        existing_status = str((existing or {}).get("status") or "").strip()
+        if existing is not None and existing_status not in {"", Status.ACTIVE.value}:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"This batch has already advanced to {existing_status}.",
+            )
+        now = datetime.now(timezone.utc).isoformat()
+        inspection_data = {
+            "batch_number": batch_number,
+            "farm_manager_id": str(batch.get("farm_manager_id") or "Unassigned"),
+            "farm_name": str(batch.get("farm_name") or "Unassigned Farm"),
+            "plant_type": str(batch.get("plant_name") or "Unspecified crop"),
+            "total_heads": payload.total_heads,
+            "total_weight": payload.total_weight,
+            "harvest_received_images": str(batch.get("harvest_images") or "")[:225],
+            "packaging_supervisor_id": payload.packaging_supervisor_id.strip() or "Unassigned",
+            "packaging_type": payload.packaging_type.strip() or "Pending assignment",
+            "packaging_weight": 0.0,
+            "total_packaged_weight": 0.0,
+            "packaging_waste_type": "None",
+            "packaging_waste_weight": 0.0,
+            "packaging_images": "",
+            "yield_loss_percentage": 0.0,
+            "received_date_time": now,
+            "packaging_date_time": now,
+            "sent_to_sales": False,
+            "sent_to_sales_date_time": now,
+            "status": Status.ACTIVE.value,
+            "delivery_status": DeliveryStatus.DELIVERED.value,
+            "driver_name": "Unassigned",
+            "vehicle": "Pending",
+            "destination": "Farm Estates Hub",
+            "address": "",
+            "eta": "Received",
+            "temperature": payload.temperature.strip() or "N/A",
+            "priority": payload.priority.value,
+            "delivery_note": payload.notes.strip(),
+        }
+
+        if existing is None:
+            inspection_data["fulfillment_id"] = ID.unique()
+            saved = db.create_document(
+                database_id=db_id,
+                collection_id=db_collection_id7,
+                document_id=ID.unique(),
+                data=inspection_data,
+            )
+            action = "Create"
+        else:
+            saved = db.update_document(
+                database_id=db_id,
+                collection_id=db_collection_id7,
+                document_id=existing["$id"],
+                data=inspection_data,
+            )
+            action = "Update"
+
+        write_audit(
+            action_type=action,
+            collection_name="Fulfillment",
+            performed_by_id=payload.inspected_by_id,
+            performed_by_role="fulfillment_manager",
+            action_details=f"Inspected harvest intake for batch {batch_number}",
+            previous_data=existing,
+            new_data=inspection_data,
+        )
+        return {
+            "message": "Harvest intake inspection saved",
+            "fulfillment": saved,
+            "batch": batch,
+        }
+    except HTTPException:
+        raise
+    except Exception as error:
+        raise HTTPException(status_code=500, detail=f"Could not inspect harvest intake: {error}") from error
+
+
+@collection7_router.post("/fulfillments/intake/{batch_id}/release")
+def release_harvest_to_packaging(batch_id: str, payload: HarvestReleasePayload):
+    try:
+        batch = db.get_document(
+            database_id=db_id,
+            collection_id=db_collection_id5,
+            document_id=batch_id,
+        )
+        batch_number = _batch_number(batch)
+        fulfillment = _find_fulfillment_for_batch(batch_number)
+        if fulfillment is None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Inspect this harvest before releasing it to packaging.",
+            )
+
+        current_status = str(fulfillment.get("status") or "").strip()
+        if current_status == Status.INACTIVE.value:
+            if str(batch.get("production_status") or "").strip() != "Delivered":
+                batch = db.update_document(
+                    database_id=db_id,
+                    collection_id=db_collection_id5,
+                    document_id=batch_id,
+                    data={
+                        "production_status": "Delivered",
+                        "updated_at": datetime.now(timezone.utc).isoformat(),
+                    },
+                )
+            return {
+                "message": "Batch is already in packaging",
+                "fulfillment": fulfillment,
+                "batch": batch,
+            }
+        if current_status != Status.ACTIVE.value:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"A fulfillment in {current_status or 'unknown'} status cannot be released from intake.",
+            )
+
+        now = datetime.now(timezone.utc).isoformat()
+        fulfillment_update = {
+            "status": Status.INACTIVE.value,
+            "packaging_date_time": now,
+            "eta": "Released to packaging",
+        }
+        updated_fulfillment = db.update_document(
+            database_id=db_id,
+            collection_id=db_collection_id7,
+            document_id=fulfillment["$id"],
+            data=fulfillment_update,
+        )
+
+        batch_update = {
+            "production_status": "Delivered",
+            "updated_at": now,
+        }
+        try:
+            updated_batch = db.update_document(
+                database_id=db_id,
+                collection_id=db_collection_id5,
+                document_id=batch_id,
+                data=batch_update,
+            )
+        except Exception:
+            db.update_document(
+                database_id=db_id,
+                collection_id=db_collection_id7,
+                document_id=fulfillment["$id"],
+                data={"status": Status.ACTIVE.value},
+            )
+            raise
+
+        write_audit(
+            action_type="Update",
+            collection_name="Fulfillment",
+            performed_by_id=payload.released_by_id,
+            performed_by_role="fulfillment_manager",
+            action_details=f"Released batch {batch_number} to packaging",
+            previous_data=fulfillment,
+            new_data=fulfillment_update,
+        )
+        write_audit(
+            action_type="Update",
+            collection_name="Batches",
+            performed_by_id=payload.released_by_id,
+            performed_by_role="fulfillment_manager",
+            action_details=f"Marked batch {batch_number} delivered to the hub",
+            previous_data=batch,
+            new_data=batch_update,
+        )
+
+        supervisor_id = str(fulfillment.get("packaging_supervisor_id") or "").strip()
+        if supervisor_id and supervisor_id.casefold() not in {"unassigned", "system"}:
+            try:
+                create_notification(
+                    recipient_id=supervisor_id,
+                    recipient_name="Packaging Supervisor",
+                    title="Harvest released to packaging",
+                    message=f"Batch {batch_number} from {batch.get('farm_name') or 'a farm'} is ready for packaging.",
+                    notification_type="batch",
+                    priority="high" if fulfillment.get("priority") == "High" else "normal",
+                )
+            except Exception as notification_error:
+                print(f"Packaging release notification failed: {notification_error}")
+
+        return {
+            "message": "Harvest released to packaging",
+            "fulfillment": updated_fulfillment,
+            "batch": updated_batch,
+        }
+    except HTTPException:
+        raise
+    except Exception as error:
+        raise HTTPException(status_code=500, detail=f"Could not release harvest: {error}") from error
 
 @collection7_router.post("/fulfillment/info")
 def register_fulfillment(
