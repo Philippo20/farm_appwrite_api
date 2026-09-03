@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Form, HTTPException, status
 from typing import Annotated
+import json
 from enum import Enum
 from datetime import datetime, date, timezone
 from pydantic import BaseModel, Field
@@ -69,6 +70,29 @@ class PackagingRecordPayload(BaseModel):
     recorded_by_name: str = Field(default="Packaging Supervisor", max_length=225)
 
 
+class QualityInspectionPayload(BaseModel):
+    appearance_passed: bool
+    package_integrity_passed: bool
+    label_traceability_passed: bool
+    weight_compliance_passed: bool
+    temperature_compliance_passed: bool
+    notes: str = Field(default="", max_length=1000)
+    inspected_by_id: str = Field(min_length=1, max_length=225)
+    inspected_by_name: str = Field(default="Quality Assurance", max_length=225)
+
+
+class QualityDecision(str, Enum):
+    APPROVE = "Approve"
+    REJECT = "Reject"
+
+
+class QualityDecisionPayload(BaseModel):
+    decision: QualityDecision
+    reason: str = Field(default="", max_length=1000)
+    decided_by_id: str = Field(min_length=1, max_length=225)
+    decided_by_name: str = Field(default="Quality Assurance", max_length=225)
+
+
 def _batch_number(batch):
     return str(batch.get("batch_no") or batch.get("batch_id") or batch.get("$id") or "").strip()
 
@@ -112,6 +136,199 @@ def _number(value):
 
 def _normalized(value):
     return str(value or "").strip().casefold()
+
+
+def _notify_roles(roles, *, title, message, priority="normal"):
+    users = db.list_documents(
+        database_id=db_id,
+        collection_id=db_collection_id1,
+    ).get("documents", [])
+    normalized_roles = {_normalized(role) for role in roles}
+    for user in users:
+        if _normalized(user.get("role")) not in normalized_roles:
+            continue
+        recipient_id = str(user.get("$id") or user.get("user_id") or "").strip()
+        if not recipient_id:
+            continue
+        create_notification(
+            recipient_id=recipient_id,
+            recipient_name=str(user.get("name") or "Farm Estates User"),
+            title=title,
+            message=message,
+            notification_type="batch",
+            priority=priority,
+        )
+
+
+@collection7_router.post("/fulfillments/{fulfillment_id}/quality-inspection")
+def record_quality_inspection(fulfillment_id: str, payload: QualityInspectionPayload):
+    try:
+        fulfillment = db.get_document(
+            database_id=db_id,
+            collection_id=db_collection_id7,
+            document_id=fulfillment_id,
+        )
+        fulfillment_status = str(fulfillment.get("status") or "").strip()
+        quality_status = str(
+            fulfillment.get("quality_status") or "Pending Inspection"
+        ).strip()
+        if fulfillment_status != Status.PENDING.value:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Only batches that have completed packaging can be inspected.",
+            )
+        if quality_status == "Approved":
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="This batch has already been approved.",
+            )
+
+        checks = {
+            "appearance": payload.appearance_passed,
+            "package_integrity": payload.package_integrity_passed,
+            "label_traceability": payload.label_traceability_passed,
+            "weight_compliance": payload.weight_compliance_passed,
+            "temperature_compliance": payload.temperature_compliance_passed,
+        }
+        passed = sum(1 for value in checks.values() if value)
+        score = float(passed * 20)
+        grade = "Grade A" if score >= 90 else "Grade B" if score >= 75 else "Grade C"
+        if passed < len(checks) and not payload.notes.strip():
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Add inspection notes for every batch with a failed quality gate.",
+            )
+
+        now = datetime.now(timezone.utc).isoformat()
+        update_data = {
+            "quality_status": "Inspected",
+            "quality_score": score,
+            "quality_grade": grade,
+            "quality_checks": json.dumps(checks, separators=(",", ":")),
+            "quality_notes": payload.notes.strip(),
+            "quality_inspector_id": payload.inspected_by_id.strip(),
+            "quality_inspector_name": payload.inspected_by_name.strip() or "Quality Assurance",
+            "quality_inspected_at": now,
+            "quality_decision_by_id": "",
+            "quality_decision_by_name": "",
+            "quality_rejection_reason": "",
+            "eta": "Awaiting quality approval",
+        }
+        saved = db.update_document(
+            database_id=db_id,
+            collection_id=db_collection_id7,
+            document_id=fulfillment_id,
+            data=update_data,
+        )
+        batch_number = str(fulfillment.get("batch_number") or fulfillment_id)
+        write_audit(
+            action_type="Update",
+            collection_name="Fulfillment",
+            performed_by_id=payload.inspected_by_id,
+            performed_by_role="quality_officer",
+            action_details=f"Recorded quality inspection for batch {batch_number} ({score:.0f}%)",
+            previous_data=fulfillment,
+            new_data=update_data,
+        )
+        return {
+            "message": "Quality inspection saved",
+            "fulfillment": saved,
+            "score": score,
+            "grade": grade,
+        }
+    except HTTPException:
+        raise
+    except Exception as error:
+        raise HTTPException(status_code=500, detail=f"Could not save quality inspection: {error}") from error
+
+
+@collection7_router.post("/fulfillments/{fulfillment_id}/quality-decision")
+def record_quality_decision(fulfillment_id: str, payload: QualityDecisionPayload):
+    try:
+        fulfillment = db.get_document(
+            database_id=db_id,
+            collection_id=db_collection_id7,
+            document_id=fulfillment_id,
+        )
+        quality_status = str(
+            fulfillment.get("quality_status") or "Pending Inspection"
+        ).strip()
+        if quality_status == "Approved" and payload.decision == QualityDecision.APPROVE:
+            return {"message": "Batch is already approved", "fulfillment": fulfillment}
+        if quality_status != "Inspected":
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Complete the quality inspection before recording a decision.",
+            )
+        if payload.decision == QualityDecision.REJECT and not payload.reason.strip():
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Enter the rejection reason before placing the batch on hold.",
+            )
+
+        now = datetime.now(timezone.utc).isoformat()
+        approved = payload.decision == QualityDecision.APPROVE
+        update_data = {
+            "quality_status": "Approved" if approved else "Rejected",
+            "quality_grade": (
+                str(fulfillment.get("quality_grade") or "Grade C")
+                if approved
+                else "Rejected"
+            ),
+            "quality_decision_by_id": payload.decided_by_id.strip(),
+            "quality_decision_by_name": payload.decided_by_name.strip() or "Quality Assurance",
+            "quality_decided_at": now,
+            "quality_rejection_reason": "" if approved else payload.reason.strip(),
+            "status": Status.SENT_TO_SALES.value if approved else Status.PENDING.value,
+            "sent_to_sales": approved,
+            "eta": "Released to sales" if approved else "Quality hold - corrective action required",
+        }
+        if approved:
+            update_data["sent_to_sales_date_time"] = now
+        saved = db.update_document(
+            database_id=db_id,
+            collection_id=db_collection_id7,
+            document_id=fulfillment_id,
+            data=update_data,
+        )
+        batch_number = str(fulfillment.get("batch_number") or fulfillment_id)
+        action = "approved" if approved else "rejected"
+        write_audit(
+            action_type="Update",
+            collection_name="Fulfillment",
+            performed_by_id=payload.decided_by_id,
+            performed_by_role="quality_officer",
+            action_details=f"Quality {action} batch {batch_number}",
+            previous_data=fulfillment,
+            new_data=update_data,
+        )
+
+        try:
+            if approved:
+                _notify_roles(
+                    {"sales_manager", "sales_personnel", "fulfillment_manager"},
+                    title="Batch approved for sales",
+                    message=f"Batch {batch_number} passed quality assurance and is ready for sales.",
+                    priority="high",
+                )
+            else:
+                _notify_roles(
+                    {"packaging_supervisor", "fulfillment_manager"},
+                    title="Batch placed on quality hold",
+                    message=f"Batch {batch_number} was rejected: {payload.reason.strip()}",
+                    priority="high",
+                )
+        except Exception as notification_error:
+            print(f"Quality decision notification failed: {notification_error}")
+
+        return {
+            "message": "Batch approved and released to sales" if approved else "Batch rejected and placed on hold",
+            "fulfillment": saved,
+        }
+    except HTTPException:
+        raise
+    except Exception as error:
+        raise HTTPException(status_code=500, detail=f"Could not save quality decision: {error}") from error
 
 
 @collection7_router.post("/fulfillments/intake/{batch_id}/inspect")

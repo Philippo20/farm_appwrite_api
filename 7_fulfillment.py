@@ -164,6 +164,109 @@ result = db.create_enum_attribute(
 )
 
 result = db.create_enum_attribute(
+    database_id=db_id,
+    collection_id=db_collection_id7,
+    key="quality_status",
+    elements=["Pending Inspection", "Inspected", "Approved", "Rejected"],
+    required=False,
+    default="Pending Inspection"
+)
+
+result = db.create_float_attribute(
+    database_id=db_id,
+    collection_id=db_collection_id7,
+    key="quality_score",
+    required=False,
+    default=0.0
+)
+
+result = db.create_enum_attribute(
+    database_id=db_id,
+    collection_id=db_collection_id7,
+    key="quality_grade",
+    elements=["Pending", "Grade A", "Grade B", "Grade C", "Rejected"],
+    required=False,
+    default="Pending"
+)
+
+result = db.create_string_attribute(
+    database_id=db_id,
+    collection_id=db_collection_id7,
+    key="quality_checks",
+    size=2000,
+    required=False,
+    default="{}"
+)
+
+result = db.create_string_attribute(
+    database_id=db_id,
+    collection_id=db_collection_id7,
+    key="quality_notes",
+    size=1000,
+    required=False,
+    default=""
+)
+
+result = db.create_string_attribute(
+    database_id=db_id,
+    collection_id=db_collection_id7,
+    key="quality_inspector_id",
+    size=225,
+    required=False,
+    default=""
+)
+
+result = db.create_string_attribute(
+    database_id=db_id,
+    collection_id=db_collection_id7,
+    key="quality_inspector_name",
+    size=225,
+    required=False,
+    default=""
+)
+
+result = db.create_datetime_attribute(
+    database_id=db_id,
+    collection_id=db_collection_id7,
+    key="quality_inspected_at",
+    required=False
+)
+
+result = db.create_string_attribute(
+    database_id=db_id,
+    collection_id=db_collection_id7,
+    key="quality_decision_by_id",
+    size=225,
+    required=False,
+    default=""
+)
+
+result = db.create_string_attribute(
+    database_id=db_id,
+    collection_id=db_collection_id7,
+    key="quality_decision_by_name",
+    size=225,
+    required=False,
+    default=""
+)
+
+result = db.create_datetime_attribute(
+    database_id=db_id,
+    collection_id=db_collection_id7,
+    key="quality_decided_at",
+    required=False
+)
+
+result = db.create_string_attribute(
+    database_id=db_id,
+    collection_id=db_collection_id7,
+    key="quality_rejection_reason",
+    size=1000,
+    required=False,
+    default=""
+)
+
+result = db.create_enum_attribute(
     database_id= db_id,
     collection_id= db_collection_id7,
     key="delivery_status",
