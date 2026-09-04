@@ -105,6 +105,58 @@ result = db.create_float_attribute(
 result = db.create_string_attribute(
     database_id=db_id,
     collection_id=db_collection_id8,
+    key="invoice_number",
+    size=80,
+    required=False,
+    default=""
+)
+
+result = db.create_datetime_attribute(
+    database_id=db_id,
+    collection_id=db_collection_id8,
+    key="invoice_generated_at",
+    required=False
+)
+
+result = db.create_string_attribute(
+    database_id=db_id,
+    collection_id=db_collection_id8,
+    key="sales_person_id",
+    size=225,
+    required=False,
+    default=""
+)
+
+result = db.create_string_attribute(
+    database_id=db_id,
+    collection_id=db_collection_id8,
+    key="sales_person_name",
+    size=225,
+    required=False,
+    default=""
+)
+
+result = db.create_string_attribute(
+    database_id=db_id,
+    collection_id=db_collection_id8,
+    key="delivery_agent_id",
+    size=225,
+    required=False,
+    default=""
+)
+
+result = db.create_string_attribute(
+    database_id=db_id,
+    collection_id=db_collection_id8,
+    key="delivery_agent_name",
+    size=225,
+    required=False,
+    default=""
+)
+
+result = db.create_string_attribute(
+    database_id=db_id,
+    collection_id=db_collection_id8,
     key="delivery_address",
     size=500,
     required=False,

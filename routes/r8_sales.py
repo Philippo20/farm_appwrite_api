@@ -1,11 +1,21 @@
 from fastapi import APIRouter, Form, HTTPException, status
 from typing import Annotated
 from enum import Enum
-from datetime import datetime, date
-from main import db_id, db_collection_id7, db_collection_id8, db_collection_id17
+from datetime import datetime, date, timezone
+from html import escape
+import secrets
+from main import (
+    db_id,
+    db_collection_id1,
+    db_collection_id7,
+    db_collection_id8,
+    db_collection_id17,
+)
 from db import db
 from appwrite.id import ID
+from fastapi.responses import HTMLResponse
 from audit_utils import write_audit
+from routes.r25_notifications import create_notification
 
 collection8_router = APIRouter(tags=["Sales"])
 
@@ -216,6 +226,63 @@ def _validated_sale_price(pricing_reference, price_tier, fulfillment):
         )
     return pricing, tier, unit_price
 
+
+def _assigned_user(user_id, allowed_roles, label):
+    reference = str(user_id or "").strip()
+    if not reference:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Assign an active {label} before creating the delivery.",
+        )
+    try:
+        user = db.get_document(
+            database_id=db_id,
+            collection_id=db_collection_id1,
+            document_id=reference,
+        )
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"The selected {label} could not be found.",
+        )
+    if _normalized(user.get("status") or "Active") != "active":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"The selected {label} is not active.",
+        )
+    if _normalized(user.get("role")) not in {_normalized(role) for role in allowed_roles}:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"The selected user is not a valid {label}.",
+        )
+    return user
+
+
+def _new_invoice_number():
+    return f"INV-{datetime.now(timezone.utc):%Y%m%d}-{secrets.token_hex(3).upper()}"
+
+
+def _notify_delivery_assignment(sale, recipient, responsibility):
+    recipient_id = str(recipient.get("$id") or "").strip()
+    if not recipient_id:
+        return
+    invoice_number = str(sale.get("invoice_number") or "Invoice")
+    create_notification(
+        recipient_id=recipient_id,
+        recipient_name=str(recipient.get("name") or responsibility),
+        title=f"Delivery assigned - {invoice_number}",
+        message=(
+            f"{sale.get('package_count', 0)} packs from batch "
+            f"{sale.get('batch_number', '')} are assigned to you for "
+            f"{sale.get('buyer_name', 'the off-taker')}. Open and print the invoice, "
+            "then obtain the off-taker signature at handover. "
+            f"Invoice: /sales/{sale.get('$id', '')}/invoice"
+        ),
+        notification_type="delivery",
+        priority="high",
+        related_task_id=str(sale.get("$id") or ""),
+    )
+
 @collection8_router.post("/sales/info")
 def register_sales(
         batch_id: Annotated[str, Form()],
@@ -227,8 +294,6 @@ def register_sales(
         total_amount: Annotated[float, Form()],
         paid: Annotated[bool, Form()],
         payment_mode: Annotated[str, Form()],
-        receipt_image: Annotated[str, Form()],
-        receipt_number: Annotated[str, Form()],
         payment_date: Annotated[date, Form()],
         created_by: Annotated[str, Form()],
         status: Annotated[Status, Form()],
@@ -241,7 +306,11 @@ def register_sales(
         created_by_role: Annotated[str, Form()] = "sales_manager",
         scheduled_for: Annotated[datetime | None, Form()] = None,
         pricing_id: Annotated[str, Form()] = "",
-        price_tier: Annotated[str, Form()] = "Regular"
+        price_tier: Annotated[str, Form()] = "Regular",
+        sales_person_id: Annotated[str, Form()] = "",
+        delivery_agent_id: Annotated[str, Form()] = "",
+        receipt_image: Annotated[str, Form()] = "",
+        receipt_number: Annotated[str, Form()] = ""
         ):
     fulfillment, _ = _validated_allocation(
         fulfillment_id or batch_number or batch_id,
@@ -256,6 +325,18 @@ def register_sales(
         fulfillment,
     )
     calculated_total = round(unit_price * package_count, 2)
+    sales_person = _assigned_user(
+        sales_person_id,
+        {"sales_person", "sales_personnel"},
+        "Sales Personnel",
+    )
+    delivery_agent = _assigned_user(
+        delivery_agent_id,
+        {"driver", "delivery_agent"},
+        "Delivery Agent",
+    )
+    invoice_number = _new_invoice_number()
+    invoice_generated_at = datetime.now(timezone.utc).isoformat()
     scheduled_value = scheduled_for or delivered_at
     sales_info = {
         "batch_id": canonical_batch,
@@ -270,6 +351,12 @@ def register_sales(
         "pricing_id": str(pricing.get("$id") or pricing_id),
         "price_tier": resolved_tier,
         "unit_price": unit_price,
+        "invoice_number": invoice_number,
+        "invoice_generated_at": invoice_generated_at,
+        "sales_person_id": str(sales_person.get("$id") or sales_person_id),
+        "sales_person_name": str(sales_person.get("name") or "Sales Personnel"),
+        "delivery_agent_id": str(delivery_agent.get("$id") or delivery_agent_id),
+        "delivery_agent_name": str(delivery_agent.get("name") or "Delivery Agent"),
         "buyer_id": buyer_id,
         "off_taker_id": off_taker_id,
         "buyer_name": buyer_name,
@@ -280,8 +367,8 @@ def register_sales(
         "total_amount": calculated_total,
         "paid": paid,
         "payment_mode": payment_mode,
-        "receipt_image": receipt_image,
-        "receipt_number": receipt_number,
+        "receipt_image": receipt_image.strip() or "Pending signature",
+        "receipt_number": receipt_number.strip() or invoice_number,
         "payment_date": payment_date.isoformat(),
         "created_by": created_by,
         "status": status,
@@ -298,6 +385,9 @@ def register_sales(
         document_id=ID.unique(),
         data= sales_info
     )
+    _notify_delivery_assignment(sales_create, sales_person, "Sales Personnel")
+    if str(delivery_agent.get("$id") or "") != str(sales_person.get("$id") or ""):
+        _notify_delivery_assignment(sales_create, delivery_agent, "Delivery Agent")
     write_audit(
         action_type="Create",
         collection_name="Sales",
@@ -312,9 +402,10 @@ def register_sales(
     )
 
     return {
-        "message": "User registered successfully",
+        "message": "Delivery created and invoice generated successfully",
         "sales_id": sales_create["$id"],
-        "sale": sales_create
+        "sale": sales_create,
+        "invoice_url": f"/sales/{sales_create['$id']}/invoice"
     }
 
 @collection8_router.get("/sales")
@@ -407,6 +498,92 @@ def get_sale_info(sale_id:str):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="User not found!")
+
+
+@collection8_router.get("/sales/{sale_id}/invoice", response_class=HTMLResponse)
+def get_sales_invoice(sale_id: str):
+    try:
+        sale = db.get_document(
+            database_id=db_id,
+            collection_id=db_collection_id8,
+            document_id=sale_id,
+        )
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Sales invoice not found.",
+        )
+
+    def value(key, fallback="-"):
+        text = str(sale.get(key) or "").strip()
+        return escape(text or fallback)
+
+    invoice_number = value("invoice_number", value("receipt_number", sale_id))
+    generated_at = value("invoice_generated_at", value("delivered_at"))
+    package_count = _integer(sale.get("package_count"))
+    unit_price = _number(sale.get("unit_price"))
+    total_amount = _number(sale.get("total_amount"))
+    quantity = _number(sale.get("quantity_delivered"))
+    html = f"""<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>{invoice_number} | Farm Estates Ltd</title>
+  <style>
+    * {{ box-sizing: border-box; }}
+    body {{ margin: 0; background: #eef2f0; color: #17211b; font-family: Arial, sans-serif; }}
+    .toolbar {{ max-width: 900px; margin: 18px auto 0; display: flex; justify-content: flex-end; }}
+    .print {{ border: 0; border-radius: 8px; padding: 12px 20px; color: #fff; background: #36a852; font-weight: 700; cursor: pointer; }}
+    .invoice {{ width: min(900px, calc(100% - 28px)); margin: 14px auto 32px; background: #fff; padding: 42px; box-shadow: 0 8px 28px rgba(18,43,28,.12); }}
+    .header {{ display: flex; justify-content: space-between; gap: 24px; padding-bottom: 24px; border-bottom: 3px solid #36a852; }}
+    h1 {{ margin: 0; font-size: 30px; }}
+    .brand {{ color: #23883d; font-weight: 800; font-size: 22px; }}
+    .muted {{ color: #66736b; font-size: 13px; line-height: 1.5; }}
+    .right {{ text-align: right; }}
+    .parties {{ display: grid; grid-template-columns: 1fr 1fr; gap: 30px; margin: 28px 0; }}
+    .label {{ color: #66736b; font-size: 12px; text-transform: uppercase; font-weight: 700; margin-bottom: 7px; }}
+    table {{ width: 100%; border-collapse: collapse; margin-top: 18px; }}
+    th {{ background: #edf8f0; color: #276c39; text-align: left; padding: 13px 10px; font-size: 12px; }}
+    td {{ padding: 15px 10px; border-bottom: 1px solid #e4e9e6; vertical-align: top; }}
+    .number {{ text-align: right; }}
+    .total {{ margin: 24px 0 36px auto; width: min(360px, 100%); }}
+    .total div {{ display: flex; justify-content: space-between; padding: 8px 0; }}
+    .grand {{ border-top: 2px solid #17211b; font-size: 19px; font-weight: 800; }}
+    .assignment {{ padding: 16px; background: #f6f8f7; border-left: 4px solid #36a852; line-height: 1.7; }}
+    .signatures {{ display: grid; grid-template-columns: 1fr 1fr; gap: 55px; margin-top: 80px; }}
+    .signature {{ border-top: 1px solid #17211b; padding-top: 9px; font-size: 13px; }}
+    .footer {{ margin-top: 40px; border-top: 1px solid #e4e9e6; padding-top: 16px; text-align: center; }}
+    @media (max-width: 620px) {{ .invoice {{ padding: 24px; }} .header, .parties, .signatures {{ grid-template-columns: 1fr; display: grid; }} .right {{ text-align: left; }} }}
+    @media print {{ body {{ background: #fff; }} .toolbar {{ display: none; }} .invoice {{ width: 100%; margin: 0; padding: 22px; box-shadow: none; }} @page {{ size: A4; margin: 12mm; }} }}
+  </style>
+</head>
+<body>
+  <div class="toolbar"><button class="print" onclick="window.print()">Print invoice</button></div>
+  <main class="invoice">
+    <header class="header">
+      <div><div class="brand">FARM ESTATES LTD</div><div class="muted">Packaged produce delivery invoice</div></div>
+      <div class="right"><h1>INVOICE</h1><strong>{invoice_number}</strong><div class="muted">Generated: {generated_at}</div></div>
+    </header>
+    <section class="parties">
+      <div><div class="label">Deliver to</div><strong>{value('buyer_name', 'Off-taker')}</strong><div class="muted">{value('delivery_address')}</div></div>
+      <div><div class="label">Delivery assignment</div><strong>{value('sales_person_name', 'Sales Personnel')}</strong><div class="muted">Delivery agent: {value('delivery_agent_name', 'Unassigned')}</div><div class="muted">Scheduled: {value('scheduled_for')}</div></div>
+    </section>
+    <table>
+      <thead><tr><th>Batch / Product</th><th>Package</th><th class="number">Packs</th><th class="number">Unit price</th><th class="number">Amount</th></tr></thead>
+      <tbody><tr><td><strong>{value('batch_number')}</strong><div class="muted">{value('crop_variety')} | {quantity:.2f} kg</div></td><td>{value('package_type')}<div class="muted">{value('price_tier', 'Regular')} price</div></td><td class="number">{package_count}</td><td class="number">GHS {unit_price:.2f}</td><td class="number"><strong>GHS {total_amount:.2f}</strong></td></tr></tbody>
+    </table>
+    <section class="total"><div><span>Subtotal</span><span>GHS {total_amount:.2f}</span></div><div class="grand"><span>Total</span><span>GHS {total_amount:.2f}</span></div><div class="muted">Payment: {value('payment_mode')} | {"Paid" if sale.get('paid') is True else "Payment due"}</div></section>
+    <section class="assignment"><strong>Handover instructions</strong><br>{value('delivery_notes', 'Inspect the packs, sign this invoice, and return the signed copy to Farm Estates Ltd.')}</section>
+    <section class="signatures"><div class="signature">Off-taker name, signature and date</div><div class="signature">Sales Personnel / Delivery Agent signature and date</div></section>
+    <footer class="footer muted">This document confirms physical handover only when signed by the receiving off-taker.</footer>
+  </main>
+</body>
+</html>"""
+    return HTMLResponse(
+        content=html,
+        headers={"Content-Disposition": f'inline; filename="{invoice_number}.html"'},
+    )
     
 @collection8_router.put("/sales/{sale_id}")
 def update_sale(sale_id:str,
@@ -419,8 +596,6 @@ def update_sale(sale_id:str,
     total_amount: Annotated[float, Form()],
     paid: Annotated[bool, Form()],
     payment_mode: Annotated[str, Form()],
-    receipt_image: Annotated[str, Form()],
-    receipt_number: Annotated[str, Form()],
     payment_date: Annotated[date, Form()],
     created_by: Annotated[str, Form()],
     status: Annotated[Status, Form()],
@@ -433,7 +608,11 @@ def update_sale(sale_id:str,
     created_by_role: Annotated[str, Form()] = "sales_manager",
     scheduled_for: Annotated[datetime | None, Form()] = None,
     pricing_id: Annotated[str, Form()] = "",
-    price_tier: Annotated[str, Form()] = "Regular"
+    price_tier: Annotated[str, Form()] = "Regular",
+    sales_person_id: Annotated[str, Form()] = "",
+    delivery_agent_id: Annotated[str, Form()] = "",
+    receipt_image: Annotated[str, Form()] = "",
+    receipt_number: Annotated[str, Form()] = ""
     ):
     try:
         previous_sale = db.get_document(
@@ -455,7 +634,18 @@ def update_sale(sale_id:str,
             fulfillment,
         )
         calculated_total = round(unit_price * package_count, 2)
+        sales_person = _assigned_user(
+            sales_person_id,
+            {"sales_person", "sales_personnel"},
+            "Sales Personnel",
+        )
+        delivery_agent = _assigned_user(
+            delivery_agent_id,
+            {"driver", "delivery_agent"},
+            "Delivery Agent",
+        )
         scheduled_value = scheduled_for or delivered_at
+        invoice_number = str(previous_sale.get("invoice_number") or _new_invoice_number())
         update_data = {"batch_id": canonical_batch,
                   "batch_number": canonical_batch,
                   "fulfillment_id": str(fulfillment.get("$id") or fulfillment_id),
@@ -468,6 +658,15 @@ def update_sale(sale_id:str,
                   "pricing_id": str(pricing.get("$id") or pricing_id),
                   "price_tier": resolved_tier,
                   "unit_price": unit_price,
+                  "invoice_number": invoice_number,
+                  "invoice_generated_at": str(
+                      previous_sale.get("invoice_generated_at")
+                      or datetime.now(timezone.utc).isoformat()
+                  ),
+                  "sales_person_id": str(sales_person.get("$id") or sales_person_id),
+                  "sales_person_name": str(sales_person.get("name") or "Sales Personnel"),
+                  "delivery_agent_id": str(delivery_agent.get("$id") or delivery_agent_id),
+                  "delivery_agent_name": str(delivery_agent.get("name") or "Delivery Agent"),
                   "buyer_id": buyer_id,
                   "off_taker_id": off_taker_id,
                   "buyer_name": buyer_name,
@@ -478,8 +677,10 @@ def update_sale(sale_id:str,
                   "total_amount": calculated_total,
                   "paid": paid,
                   "payment_mode": payment_mode,
-                  "receipt_image": receipt_image,
-                  "receipt_number": receipt_number,
+                  "receipt_image": receipt_image.strip() or str(
+                      previous_sale.get("receipt_image") or "Pending signature"
+                  ),
+                  "receipt_number": receipt_number.strip() or invoice_number,
                   "payment_date": payment_date.isoformat(),
                   "created_by": created_by,
                   "status": status,
@@ -498,6 +699,14 @@ def update_sale(sale_id:str,
             data=update_data,
             permissions=[]
         )
+        assignment_changed = any(
+            str(previous_sale.get(key) or "") != str(update_data.get(key) or "")
+            for key in ("sales_person_id", "delivery_agent_id")
+        )
+        if assignment_changed:
+            _notify_delivery_assignment(updated_sales_info, sales_person, "Sales Personnel")
+            if str(delivery_agent.get("$id") or "") != str(sales_person.get("$id") or ""):
+                _notify_delivery_assignment(updated_sales_info, delivery_agent, "Delivery Agent")
         write_audit(
             action_type="Update",
             collection_name="Sales",
