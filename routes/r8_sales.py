@@ -626,7 +626,8 @@ def get_sales_invoice(sale_id: str):
     .signature {{ border-top: 1px solid #17211b; padding-top: 9px; font-size: 13px; }}
     .footer {{ margin-top: 40px; border-top: 1px solid #e4e9e6; padding-top: 16px; text-align: center; }}
     @media (max-width: 620px) {{ .invoice {{ padding: 24px; }} .header, .parties, .signatures {{ grid-template-columns: 1fr; display: grid; }} .right {{ text-align: left; }} }}
-    @media print {{ body {{ background: #fff; }} .toolbar {{ display: none; }} .invoice {{ width: 100%; margin: 0; padding: 22px; box-shadow: none; }} @page {{ size: A4; margin: 12mm; }} }}
+    @page {{ size: A4 portrait; margin: 12mm; }}
+    @media print {{ body {{ background: #fff; }} .toolbar {{ display: none; }} .invoice {{ width: 100%; margin: 0; padding: 22px; box-shadow: none; break-inside: avoid; }} }}
   </style>
 </head>
 <body>
