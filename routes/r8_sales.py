@@ -258,6 +258,55 @@ def _assigned_user(user_id, allowed_roles, label):
     return user
 
 
+def _delivery_assignment(
+    delivery_type,
+    delivery_agent_id,
+    delivery_provider,
+    third_party_driver_name,
+    delivery_plate_number,
+):
+    assignment_type = _normalized(delivery_type).replace(" ", "_").replace("-", "_")
+    if assignment_type in {"third_party", "external"}:
+        provider = str(delivery_provider or "").strip()
+        driver_name = str(third_party_driver_name or "").strip()
+        plate_number = str(delivery_plate_number or "").strip().upper()
+        missing = []
+        if not provider:
+            missing.append("delivery provider")
+        if not driver_name:
+            missing.append("driver name")
+        if not plate_number:
+            missing.append("plate number")
+        if missing:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"Enter the third-party {', '.join(missing)}.",
+            )
+        return {
+            "delivery_type": "third_party",
+            "delivery_provider": provider,
+            "delivery_agent_id": "",
+            "delivery_agent_name": driver_name,
+            "delivery_vehicle": plate_number,
+            "delivery_plate_number": plate_number,
+        }, None
+
+    delivery_agent = _assigned_user(
+        delivery_agent_id,
+        {"driver", "delivery_agent"},
+        "Delivery Agent",
+    )
+    vehicle = str(delivery_agent.get("vehicle") or "Pending assignment").strip()
+    return {
+        "delivery_type": "internal",
+        "delivery_provider": "Farm Estates",
+        "delivery_agent_id": str(delivery_agent.get("$id") or delivery_agent_id),
+        "delivery_agent_name": str(delivery_agent.get("name") or "Delivery Agent"),
+        "delivery_vehicle": vehicle,
+        "delivery_plate_number": vehicle,
+    }, delivery_agent
+
+
 def _new_invoice_number():
     return f"INV-{datetime.now(timezone.utc):%Y%m%d}-{secrets.token_hex(3).upper()}"
 
@@ -267,6 +316,15 @@ def _notify_delivery_assignment(sale, recipient, responsibility):
     if not recipient_id:
         return
     invoice_number = str(sale.get("invoice_number") or "Invoice")
+    third_party = _normalized(sale.get("delivery_type")) == "third_party"
+    delivery_summary = (
+        f"Third-party delivery: {sale.get('delivery_provider', '')}, driver "
+        f"{sale.get('delivery_agent_name', '')}, plate "
+        f"{sale.get('delivery_plate_number', '')}. "
+        if third_party
+        else f"Internal driver: {sale.get('delivery_agent_name', '')}, vehicle "
+        f"{sale.get('delivery_vehicle', '')}. "
+    )
     create_notification(
         recipient_id=recipient_id,
         recipient_name=str(recipient.get("name") or responsibility),
@@ -274,7 +332,8 @@ def _notify_delivery_assignment(sale, recipient, responsibility):
         message=(
             f"{sale.get('package_count', 0)} packs from batch "
             f"{sale.get('batch_number', '')} are assigned to you for "
-            f"{sale.get('buyer_name', 'the off-taker')}. Open and print the invoice, "
+            f"{sale.get('buyer_name', 'the off-taker')}. {delivery_summary}"
+            "Open and print the invoice, "
             "then obtain the off-taker signature at handover. "
             f"Invoice: /sales/{sale.get('$id', '')}/invoice"
         ),
@@ -310,7 +369,11 @@ def register_sales(
         sales_person_id: Annotated[str, Form()] = "",
         delivery_agent_id: Annotated[str, Form()] = "",
         receipt_image: Annotated[str, Form()] = "",
-        receipt_number: Annotated[str, Form()] = ""
+        receipt_number: Annotated[str, Form()] = "",
+        delivery_type: Annotated[str, Form()] = "internal",
+        delivery_provider: Annotated[str, Form()] = "",
+        third_party_driver_name: Annotated[str, Form()] = "",
+        delivery_plate_number: Annotated[str, Form()] = ""
         ):
     fulfillment, _ = _validated_allocation(
         fulfillment_id or batch_number or batch_id,
@@ -330,10 +393,12 @@ def register_sales(
         {"sales_person", "sales_personnel"},
         "Sales Personnel",
     )
-    delivery_agent = _assigned_user(
+    delivery_assignment, delivery_agent = _delivery_assignment(
+        delivery_type,
         delivery_agent_id,
-        {"driver", "delivery_agent"},
-        "Delivery Agent",
+        delivery_provider,
+        third_party_driver_name,
+        delivery_plate_number,
     )
     invoice_number = _new_invoice_number()
     invoice_generated_at = datetime.now(timezone.utc).isoformat()
@@ -355,8 +420,7 @@ def register_sales(
         "invoice_generated_at": invoice_generated_at,
         "sales_person_id": str(sales_person.get("$id") or sales_person_id),
         "sales_person_name": str(sales_person.get("name") or "Sales Personnel"),
-        "delivery_agent_id": str(delivery_agent.get("$id") or delivery_agent_id),
-        "delivery_agent_name": str(delivery_agent.get("name") or "Delivery Agent"),
+        **delivery_assignment,
         "buyer_id": buyer_id,
         "off_taker_id": off_taker_id,
         "buyer_name": buyer_name,
@@ -386,7 +450,7 @@ def register_sales(
         data= sales_info
     )
     _notify_delivery_assignment(sales_create, sales_person, "Sales Personnel")
-    if str(delivery_agent.get("$id") or "") != str(sales_person.get("$id") or ""):
+    if delivery_agent is not None and str(delivery_agent.get("$id") or "") != str(sales_person.get("$id") or ""):
         _notify_delivery_assignment(sales_create, delivery_agent, "Delivery Agent")
     write_audit(
         action_type="Create",
@@ -567,7 +631,7 @@ def get_sales_invoice(sale_id: str):
     </header>
     <section class="parties">
       <div><div class="label">Deliver to</div><strong>{value('buyer_name', 'Off-taker')}</strong><div class="muted">{value('delivery_address')}</div></div>
-      <div><div class="label">Delivery assignment</div><strong>{value('sales_person_name', 'Sales Personnel')}</strong><div class="muted">Delivery agent: {value('delivery_agent_name', 'Unassigned')}</div><div class="muted">Scheduled: {value('scheduled_for')}</div></div>
+      <div><div class="label">Delivery assignment</div><strong>{value('sales_person_name', 'Sales Personnel')}</strong><div class="muted">Method: {"Third-party delivery" if _normalized(sale.get('delivery_type')) == 'third_party' else "Internal fleet"}</div><div class="muted">Provider: {value('delivery_provider', 'Farm Estates')}</div><div class="muted">Driver: {value('delivery_agent_name', 'Unassigned')}</div><div class="muted">Plate / vehicle: {value('delivery_plate_number', value('delivery_vehicle', 'Pending assignment'))}</div><div class="muted">Scheduled: {value('scheduled_for')}</div></div>
     </section>
     <table>
       <thead><tr><th>Batch / Product</th><th>Package</th><th class="number">Packs</th><th class="number">Unit price</th><th class="number">Amount</th></tr></thead>
@@ -612,7 +676,11 @@ def update_sale(sale_id:str,
     sales_person_id: Annotated[str, Form()] = "",
     delivery_agent_id: Annotated[str, Form()] = "",
     receipt_image: Annotated[str, Form()] = "",
-    receipt_number: Annotated[str, Form()] = ""
+    receipt_number: Annotated[str, Form()] = "",
+    delivery_type: Annotated[str, Form()] = "internal",
+    delivery_provider: Annotated[str, Form()] = "",
+    third_party_driver_name: Annotated[str, Form()] = "",
+    delivery_plate_number: Annotated[str, Form()] = ""
     ):
     try:
         previous_sale = db.get_document(
@@ -639,10 +707,12 @@ def update_sale(sale_id:str,
             {"sales_person", "sales_personnel"},
             "Sales Personnel",
         )
-        delivery_agent = _assigned_user(
+        delivery_assignment, delivery_agent = _delivery_assignment(
+            delivery_type,
             delivery_agent_id,
-            {"driver", "delivery_agent"},
-            "Delivery Agent",
+            delivery_provider,
+            third_party_driver_name,
+            delivery_plate_number,
         )
         scheduled_value = scheduled_for or delivered_at
         invoice_number = str(previous_sale.get("invoice_number") or _new_invoice_number())
@@ -665,8 +735,7 @@ def update_sale(sale_id:str,
                   ),
                   "sales_person_id": str(sales_person.get("$id") or sales_person_id),
                   "sales_person_name": str(sales_person.get("name") or "Sales Personnel"),
-                  "delivery_agent_id": str(delivery_agent.get("$id") or delivery_agent_id),
-                  "delivery_agent_name": str(delivery_agent.get("name") or "Delivery Agent"),
+                  **delivery_assignment,
                   "buyer_id": buyer_id,
                   "off_taker_id": off_taker_id,
                   "buyer_name": buyer_name,
@@ -701,11 +770,18 @@ def update_sale(sale_id:str,
         )
         assignment_changed = any(
             str(previous_sale.get(key) or "") != str(update_data.get(key) or "")
-            for key in ("sales_person_id", "delivery_agent_id")
+            for key in (
+                "sales_person_id",
+                "delivery_type",
+                "delivery_provider",
+                "delivery_agent_id",
+                "delivery_agent_name",
+                "delivery_plate_number",
+            )
         )
         if assignment_changed:
             _notify_delivery_assignment(updated_sales_info, sales_person, "Sales Personnel")
-            if str(delivery_agent.get("$id") or "") != str(sales_person.get("$id") or ""):
+            if delivery_agent is not None and str(delivery_agent.get("$id") or "") != str(sales_person.get("$id") or ""):
                 _notify_delivery_assignment(updated_sales_info, delivery_agent, "Delivery Agent")
         write_audit(
             action_type="Update",

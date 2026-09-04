@@ -15,6 +15,7 @@ QA = "quality_assurance_officer"
 SALES_MANAGER = "sales_manager"
 SALES_PERSON = "sales_person"
 ACCOUNTANT = "accountant"
+DRIVER = "driver"
 
 # define attributes
 result = db.create_string_attribute(
@@ -64,6 +65,41 @@ result = db.create_string_attribute(
     key="address",
     size=225,
     required= True
+)
+
+result = db.create_string_attribute(
+    database_id=db_id,
+    collection_id=db_collection_id1,
+    key="driver_license_number",
+    size=120,
+    required=False,
+    default=""
+)
+
+result = db.create_string_attribute(
+    database_id=db_id,
+    collection_id=db_collection_id1,
+    key="vehicle",
+    size=120,
+    required=False,
+    default=""
+)
+
+result = db.create_string_attribute(
+    database_id=db_id,
+    collection_id=db_collection_id1,
+    key="vehicle_type",
+    size=120,
+    required=False,
+    default=""
+)
+
+result = db.create_float_attribute(
+    database_id=db_id,
+    collection_id=db_collection_id1,
+    key="vehicle_capacity_kg",
+    required=False,
+    default=0
 )
 
 result = db.create_string_attribute(

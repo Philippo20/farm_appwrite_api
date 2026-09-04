@@ -157,6 +157,42 @@ result = db.create_string_attribute(
 result = db.create_string_attribute(
     database_id=db_id,
     collection_id=db_collection_id8,
+    key="delivery_vehicle",
+    size=120,
+    required=False,
+    default=""
+)
+
+result = db.create_string_attribute(
+    database_id=db_id,
+    collection_id=db_collection_id8,
+    key="delivery_type",
+    size=40,
+    required=False,
+    default="internal"
+)
+
+result = db.create_string_attribute(
+    database_id=db_id,
+    collection_id=db_collection_id8,
+    key="delivery_provider",
+    size=120,
+    required=False,
+    default=""
+)
+
+result = db.create_string_attribute(
+    database_id=db_id,
+    collection_id=db_collection_id8,
+    key="delivery_plate_number",
+    size=80,
+    required=False,
+    default=""
+)
+
+result = db.create_string_attribute(
+    database_id=db_id,
+    collection_id=db_collection_id8,
     key="delivery_address",
     size=500,
     required=False,

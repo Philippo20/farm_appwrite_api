@@ -48,6 +48,47 @@ class UserUpdateModel(BaseModel):
     phone: str | None = None
     department: str | None = None
     farmID: str | None = None
+    driver_license_number: str | None = None
+    vehicle: str | None = None
+    vehicle_type: str | None = None
+    vehicle_capacity_kg: float | None = None
+
+
+def _validate_driver_manager(role: Role, actor_role: str):
+    if role != Role.DRIVER:
+        return
+    normalized_actor = actor_role.strip().lower().replace("-", "_").replace(" ", "_")
+    if normalized_actor not in {Role.ADMIN.value, Role.SUPERADMIN.value}:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only an Admin or Super Admin can create or update Driver accounts.",
+        )
+
+
+def _validate_driver_profile(
+    role: Role,
+    driver_license_number: str,
+    vehicle: str,
+    vehicle_type: str,
+    vehicle_capacity_kg: float,
+):
+    if role != Role.DRIVER:
+        return
+    if not all(
+        value.strip() for value in (driver_license_number, vehicle, vehicle_type)
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                "Driver license number, vehicle registration, and vehicle type "
+                "are required for Driver accounts."
+            ),
+        )
+    if vehicle_capacity_kg < 0:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Vehicle capacity cannot be negative.",
+        )
 
 
 @collection1_router.post("/users/signup")
@@ -59,8 +100,23 @@ def register_user(
         role: Annotated[Role, Form()],
         phone: Annotated[str, Form()],
         department: Annotated[str, Form()],
-        user_status: Annotated[UserStatus, Form(alias="status")] = UserStatus.ACTIVE
+        user_status: Annotated[UserStatus, Form(alias="status")] = UserStatus.ACTIVE,
+        actor_id: Annotated[str, Form()] = "",
+        actor_role: Annotated[str, Form()] = "",
+        driver_license_number: Annotated[str, Form()] = "",
+        vehicle: Annotated[str, Form()] = "",
+        vehicle_type: Annotated[str, Form()] = "",
+        vehicle_capacity_kg: Annotated[float, Form()] = 0,
         ):
+
+    _validate_driver_manager(role, actor_role)
+    _validate_driver_profile(
+        role,
+        driver_license_number,
+        vehicle,
+        vehicle_type,
+        vehicle_capacity_kg,
+    )
 
     existing = db.list_documents(
         database_id=db_id,
@@ -90,7 +146,11 @@ def register_user(
         "status": user_status,
         "address": address,
         "phone": phone,
-        "department": department
+        "department": department,
+        "driver_license_number": driver_license_number.strip() if role == Role.DRIVER else "",
+        "vehicle": vehicle.strip() if role == Role.DRIVER else "",
+        "vehicle_type": vehicle_type.strip() if role == Role.DRIVER else "",
+        "vehicle_capacity_kg": max(vehicle_capacity_kg, 0) if role == Role.DRIVER else 0,
     }
 
     registered_user = db.create_document(
@@ -102,8 +162,8 @@ def register_user(
     write_audit(
         action_type="Create",
         collection_name="Users",
-        performed_by_id=user_id,
-        performed_by_role=role.value,
+        performed_by_id=actor_id.strip() or user_id,
+        performed_by_role=actor_role.strip() or role.value,
         action_details=f"Created user {email}",
         new_data={**user_created, "password": "***"}
     )
@@ -224,12 +284,28 @@ def update_user(
     role: Annotated[Role, Form()],
     phone: Annotated[str, Form()],
     department: Annotated[str, Form()],
-    user_status: Annotated[UserStatus, Form(alias="status")] = UserStatus.ACTIVE):
+    user_status: Annotated[UserStatus, Form(alias="status")] = UserStatus.ACTIVE,
+    actor_id: Annotated[str, Form()] = "",
+    actor_role: Annotated[str, Form()] = "",
+    driver_license_number: Annotated[str, Form()] = "",
+    vehicle: Annotated[str, Form()] = "",
+    vehicle_type: Annotated[str, Form()] = "",
+    vehicle_capacity_kg: Annotated[float, Form()] = 0,
+    ):
     try:
         previous_user = db.get_document(
             database_id=db_id,
             collection_id=db_collection_id1,
             document_id=user_id
+        )
+        if role == Role.DRIVER or previous_user.get("role") == Role.DRIVER.value:
+            _validate_driver_manager(Role.DRIVER, actor_role)
+        _validate_driver_profile(
+            role,
+            driver_license_number,
+            vehicle,
+            vehicle_type,
+            vehicle_capacity_kg,
         )
         # Perform update
         update_data = {"name": name,
@@ -239,7 +315,11 @@ def update_user(
                   "status": user_status,
                   "address": address,
                   "phone": phone,
-                  "department": department
+                  "department": department,
+                  "driver_license_number": driver_license_number.strip() if role == Role.DRIVER else "",
+                  "vehicle": vehicle.strip() if role == Role.DRIVER else "",
+                  "vehicle_type": vehicle_type.strip() if role == Role.DRIVER else "",
+                  "vehicle_capacity_kg": max(vehicle_capacity_kg, 0) if role == Role.DRIVER else 0,
             }
         updated_user = db.update_document(
             database_id=db_id,
@@ -258,14 +338,16 @@ def update_user(
         write_audit(
             action_type="Update",
             collection_name="Users",
-            performed_by_id=user_id,
-            performed_by_role=role.value,
+            performed_by_id=actor_id.strip() or user_id,
+            performed_by_role=actor_role.strip() or role.value,
             action_details=f"Updated user {email}",
             previous_data=previous_user,
             new_data={**update_data, "password": "***"}
         )
         return {"message": "User updated successfully", "user": updated_user}
 
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Update failed: {e}")
     
