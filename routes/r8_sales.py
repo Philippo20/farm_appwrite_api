@@ -3,7 +3,9 @@ from typing import Annotated
 from enum import Enum
 from datetime import datetime, date, timezone
 from html import escape
+import os
 import secrets
+from urllib.parse import quote
 from main import (
     db_id,
     db_collection_id1,
@@ -311,6 +313,11 @@ def _new_invoice_number():
     return f"INV-{datetime.now(timezone.utc):%Y%m%d}-{secrets.token_hex(3).upper()}"
 
 
+def _public_invoice_url(sale_id):
+    ui_url = os.getenv("APP_UI_URL", "https://apps.farmestates.farm").strip().rstrip("/")
+    return f"{ui_url}/#/sales-invoice?id={quote(str(sale_id or ''), safe='')}"
+
+
 def _notify_delivery_assignment(sale, recipient, responsibility):
     recipient_id = str(recipient.get("$id") or "").strip()
     if not recipient_id:
@@ -335,7 +342,7 @@ def _notify_delivery_assignment(sale, recipient, responsibility):
             f"{sale.get('buyer_name', 'the off-taker')}. {delivery_summary}"
             "Open and print the invoice, "
             "then obtain the off-taker signature at handover. "
-            f"Invoice: /sales/{sale.get('$id', '')}/invoice"
+            f"Invoice: {_public_invoice_url(sale.get('$id'))}"
         ),
         notification_type="delivery",
         priority="high",
@@ -469,7 +476,7 @@ def register_sales(
         "message": "Delivery created and invoice generated successfully",
         "sales_id": sales_create["$id"],
         "sale": sales_create,
-        "invoice_url": f"/sales/{sales_create['$id']}/invoice"
+        "invoice_url": _public_invoice_url(sales_create["$id"])
     }
 
 @collection8_router.get("/sales")
@@ -802,6 +809,111 @@ def update_sale(sale_id:str,
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Update failed: {e}")
+
+
+@collection8_router.patch("/sales/{sale_id}/handover")
+def update_sales_handover(
+    sale_id: str,
+    actor_id: Annotated[str, Form()],
+    actor_name: Annotated[str, Form()],
+    status_value: Annotated[Status, Form()],
+    delivery_notes: Annotated[str, Form()] = "",
+    receipt_number: Annotated[str, Form()] = "",
+    paid: Annotated[bool, Form()] = False,
+    payment_mode: Annotated[str, Form()] = "",
+):
+    """Record the off-taker handover without re-running allocation validation."""
+    try:
+        sale = db.get_document(
+            database_id=db_id,
+            collection_id=db_collection_id8,
+            document_id=sale_id,
+        )
+        actor = _assigned_user(
+            actor_id,
+            {"sales_person", "sales_personnel"},
+            "Sales Personnel",
+        )
+        resolved_actor_name = str(
+            actor.get("name") or actor_name or "Sales Personnel"
+        )
+        assigned_id = str(sale.get("sales_person_id") or "").strip()
+        if assigned_id and _normalized(actor_id) != _normalized(assigned_id):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="This delivery is assigned to another Sales Personnel user.",
+            )
+
+        update_data = {
+            "status": status_value.value,
+            "delivery_notes": str(delivery_notes or "").strip(),
+            "receipt_number": str(receipt_number or "").strip()
+            or str(sale.get("receipt_number") or sale.get("invoice_number") or ""),
+            "paid": bool(paid),
+            "payment_mode": str(payment_mode or "").strip(),
+        }
+        if status_value == Status.DELIVERED:
+            completed_at = datetime.now(timezone.utc).isoformat()
+            update_data["delivered_at"] = completed_at
+            update_data["completed_at"] = completed_at
+            if paid:
+                update_data["payment_date"] = date.today().isoformat()
+
+        updated_sale = db.update_document(
+            database_id=db_id,
+            collection_id=db_collection_id8,
+            document_id=sale_id,
+            data=update_data,
+        )
+
+        manager_id = str(sale.get("created_by") or "").strip()
+        if manager_id and _normalized(manager_id) != _normalized(actor_id):
+            manager_name = "Sales Manager"
+            try:
+                manager = db.get_document(
+                    database_id=db_id,
+                    collection_id=db_collection_id1,
+                    document_id=manager_id,
+                )
+                manager_name = str(manager.get("name") or manager_name)
+            except Exception:
+                pass
+            create_notification(
+                recipient_id=manager_id,
+                recipient_name=manager_name,
+                title=f"Delivery {status_value.value.lower()} - {sale.get('invoice_number', 'Invoice')}",
+                message=(
+                    f"{resolved_actor_name} updated the delivery for "
+                    f"{sale.get('buyer_name', 'the off-taker')} to {status_value.value}."
+                ),
+                notification_type="delivery",
+                priority="high" if status_value == Status.DELIVERED else "normal",
+                related_task_id=sale_id,
+            )
+
+        write_audit(
+            action_type="Update",
+            collection_name="Sales",
+            performed_by_id=actor_id,
+            performed_by_role="sales_personnel",
+            action_details=(
+                f"Updated delivery {sale.get('invoice_number', sale_id)} "
+                f"handover status to {status_value.value}"
+            ),
+            previous_data=sale,
+            new_data=update_data,
+        )
+        return {
+            "message": "Delivery handover updated successfully",
+            "sale": updated_sale,
+        }
+    except HTTPException:
+        raise
+    except Exception as error:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Could not update delivery handover: {error}",
+        )
     
 @collection8_router.delete("/sales/{sale_id}")
 def delete_sale(sale_id:str):
