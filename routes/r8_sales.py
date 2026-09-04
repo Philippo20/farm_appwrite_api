@@ -23,6 +23,7 @@ collection8_router = APIRouter(tags=["Sales"])
 
 class Status(str, Enum):
     PENDING = "Pending"
+    IN_TRANSIT = "In Transit"
     DELIVERED = "Delivered"
     CANCELLED= "Cancelled"
 
@@ -442,7 +443,7 @@ def register_sales(
         "receipt_number": receipt_number.strip() or invoice_number,
         "payment_date": payment_date.isoformat(),
         "created_by": created_by,
-        "status": status,
+        "status": status.value,
         "delivery_address": delivery_address.strip(),
         "delivery_notes": delivery_notes.strip(),
     }
@@ -760,7 +761,7 @@ def update_sale(sale_id:str,
                   "receipt_number": receipt_number.strip() or invoice_number,
                   "payment_date": payment_date.isoformat(),
                   "created_by": created_by,
-                  "status": status,
+                  "status": status.value,
                   "delivery_address": delivery_address.strip(),
                   "delivery_notes": delivery_notes.strip(),
             }
@@ -791,6 +792,19 @@ def update_sale(sale_id:str,
             _notify_delivery_assignment(updated_sales_info, sales_person, "Sales Personnel")
             if delivery_agent is not None and str(delivery_agent.get("$id") or "") != str(sales_person.get("$id") or ""):
                 _notify_delivery_assignment(updated_sales_info, delivery_agent, "Delivery Agent")
+        elif _normalized(previous_sale.get("status")) != _normalized(status.value):
+            create_notification(
+                recipient_id=str(sales_person.get("$id") or sales_person_id),
+                recipient_name=str(sales_person.get("name") or "Sales Personnel"),
+                title=f"Delivery {status.value.lower()} - {invoice_number}",
+                message=(
+                    f"The delivery for {buyer_name} has been updated to "
+                    f"{status.value}."
+                ),
+                notification_type="delivery",
+                priority="high" if status == Status.DELIVERED else "normal",
+                related_task_id=sale_id,
+            )
         write_audit(
             action_type="Update",
             collection_name="Sales",

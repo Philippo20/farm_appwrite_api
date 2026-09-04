@@ -317,6 +317,6 @@ result = db.create_enum_attribute(
     database_id= db_id,
     collection_id= db_collection_id8,
     key="status",
-    elements=["Pending", "Delivered", "Cancelled"],
+    elements=["Pending", "In Transit", "Delivered", "Cancelled"],
     required= True
 )
