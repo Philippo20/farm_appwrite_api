@@ -2,7 +2,7 @@ from fastapi import APIRouter, Form, HTTPException, status
 from typing import Annotated
 from enum import Enum
 from datetime import datetime, date
-from main import db_id, db_collection_id7, db_collection_id8
+from main import db_id, db_collection_id7, db_collection_id8, db_collection_id17
 from db import db
 from appwrite.id import ID
 from audit_utils import write_audit
@@ -21,6 +21,10 @@ class OfftakerStatus(str, Enum):
 
 def _normalized(value):
     return str(value or "").strip().casefold()
+
+
+def _catalog_key(value):
+    return "".join(character for character in _normalized(value) if character.isalnum())
 
 
 def _number(value):
@@ -135,6 +139,83 @@ def _validated_allocation(batch_reference, package_count, *, exclude_sale_id="")
         )
     return fulfillment, available
 
+
+def _pricing_matches_fulfillment(pricing, fulfillment):
+    variety = _catalog_key(fulfillment.get("plant_variety"))
+    priced_variety = _catalog_key(pricing.get("crop_variety"))
+    package = _catalog_key(fulfillment.get("packaging_type"))
+    priced_package = _catalog_key(pricing.get("packaging"))
+    variety_matches = bool(variety and priced_variety and variety == priced_variety)
+    package_matches = bool(
+        package
+        and priced_package
+        and (package == priced_package or package in priced_package or priced_package in package)
+    )
+    return variety_matches and package_matches
+
+
+def _validated_sale_price(pricing_reference, price_tier, fulfillment):
+    reference = str(pricing_reference or "").strip()
+    pricing = None
+    if reference:
+        try:
+            pricing = db.get_document(
+                database_id=db_id,
+                collection_id=db_collection_id17,
+                document_id=reference,
+            )
+        except Exception:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="The selected sales price could not be found.",
+            )
+    else:
+        prices = db.list_documents(
+            database_id=db_id,
+            collection_id=db_collection_id17,
+        ).get("documents", [])
+        pricing = next(
+            (
+                item
+                for item in prices
+                if _normalized(item.get("pricing_type")) == "hub_sale"
+                and _normalized(item.get("status")) == "active"
+                and _pricing_matches_fulfillment(item, fulfillment)
+            ),
+            None,
+        )
+
+    if pricing is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Configure an active Hub sale price for this crop variety and package before allocating it.",
+        )
+    if _normalized(pricing.get("pricing_type")) != "hub_sale":
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Only Hub sale pricing can be used for off-taker deliveries.",
+        )
+    if _normalized(pricing.get("status")) != "active":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="The selected Hub sale price is not active.",
+        )
+    if not _pricing_matches_fulfillment(pricing, fulfillment):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="The selected price does not match the batch crop variety and package.",
+        )
+
+    tier = "Bulk" if _normalized(price_tier) == "bulk" else "Regular"
+    price_key = "bulk_price" if tier == "Bulk" else "regular_price"
+    unit_price = _number(pricing.get(price_key))
+    if unit_price <= 0:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"The selected {tier.lower()} price must be greater than zero.",
+        )
+    return pricing, tier, unit_price
+
 @collection8_router.post("/sales/info")
 def register_sales(
         batch_id: Annotated[str, Form()],
@@ -158,7 +239,9 @@ def register_sales(
         delivery_address: Annotated[str, Form()] = "",
         delivery_notes: Annotated[str, Form()] = "",
         created_by_role: Annotated[str, Form()] = "sales_manager",
-        scheduled_for: Annotated[datetime | None, Form()] = None
+        scheduled_for: Annotated[datetime | None, Form()] = None,
+        pricing_id: Annotated[str, Form()] = "",
+        price_tier: Annotated[str, Form()] = "Regular"
         ):
     fulfillment, _ = _validated_allocation(
         fulfillment_id or batch_number or batch_id,
@@ -167,6 +250,12 @@ def register_sales(
     canonical_batch = _batch_number(fulfillment)
     unit_weight = _number(fulfillment.get("packaging_weight"))
     allocated_weight = round(unit_weight * package_count, 6)
+    pricing, resolved_tier, unit_price = _validated_sale_price(
+        pricing_id,
+        price_tier,
+        fulfillment,
+    )
+    calculated_total = round(unit_price * package_count, 2)
     scheduled_value = scheduled_for or delivered_at
     sales_info = {
         "batch_id": canonical_batch,
@@ -178,6 +267,9 @@ def register_sales(
         "package_type": str(fulfillment.get("packaging_type") or "").strip(),
         "package_count": package_count,
         "unit_weight_kg": unit_weight,
+        "pricing_id": str(pricing.get("$id") or pricing_id),
+        "price_tier": resolved_tier,
+        "unit_price": unit_price,
         "buyer_id": buyer_id,
         "off_taker_id": off_taker_id,
         "buyer_name": buyer_name,
@@ -185,7 +277,7 @@ def register_sales(
         "delivered_at": delivered_at.isoformat(),
         "scheduled_for": scheduled_value.isoformat(),
         "quantity_delivered": allocated_weight,
-        "total_amount": total_amount,
+        "total_amount": calculated_total,
         "paid": paid,
         "payment_mode": payment_mode,
         "receipt_image": receipt_image,
@@ -213,7 +305,8 @@ def register_sales(
         performed_by_role=created_by_role.strip() or "sales_manager",
         action_details=(
             f"Allocated {package_count} packs ({allocated_weight:.2f} kg) "
-            f"from batch {canonical_batch} to {buyer_name}"
+            f"from batch {canonical_batch} to {buyer_name} at "
+            f"GHS {unit_price:.2f} per pack (GHS {calculated_total:.2f})"
         ),
         new_data=sales_info
     )
@@ -338,7 +431,9 @@ def update_sale(sale_id:str,
     delivery_address: Annotated[str, Form()] = "",
     delivery_notes: Annotated[str, Form()] = "",
     created_by_role: Annotated[str, Form()] = "sales_manager",
-    scheduled_for: Annotated[datetime | None, Form()] = None
+    scheduled_for: Annotated[datetime | None, Form()] = None,
+    pricing_id: Annotated[str, Form()] = "",
+    price_tier: Annotated[str, Form()] = "Regular"
     ):
     try:
         previous_sale = db.get_document(
@@ -354,6 +449,12 @@ def update_sale(sale_id:str,
         canonical_batch = _batch_number(fulfillment)
         unit_weight = _number(fulfillment.get("packaging_weight"))
         allocated_weight = round(unit_weight * package_count, 6)
+        pricing, resolved_tier, unit_price = _validated_sale_price(
+            pricing_id,
+            price_tier,
+            fulfillment,
+        )
+        calculated_total = round(unit_price * package_count, 2)
         scheduled_value = scheduled_for or delivered_at
         update_data = {"batch_id": canonical_batch,
                   "batch_number": canonical_batch,
@@ -364,6 +465,9 @@ def update_sale(sale_id:str,
                   "package_type": str(fulfillment.get("packaging_type") or "").strip(),
                   "package_count": package_count,
                   "unit_weight_kg": unit_weight,
+                  "pricing_id": str(pricing.get("$id") or pricing_id),
+                  "price_tier": resolved_tier,
+                  "unit_price": unit_price,
                   "buyer_id": buyer_id,
                   "off_taker_id": off_taker_id,
                   "buyer_name": buyer_name,
@@ -371,7 +475,7 @@ def update_sale(sale_id:str,
                   "delivered_at": delivered_at.isoformat(),
                   "scheduled_for": scheduled_value.isoformat(),
                   "quantity_delivered": allocated_weight,
-                  "total_amount": total_amount,
+                  "total_amount": calculated_total,
                   "paid": paid,
                   "payment_mode": payment_mode,
                   "receipt_image": receipt_image,
@@ -401,7 +505,8 @@ def update_sale(sale_id:str,
             performed_by_role=created_by_role.strip() or "sales_manager",
             action_details=(
                 f"Updated delivery allocation for batch {canonical_batch}: "
-                f"{package_count} packs ({allocated_weight:.2f} kg)"
+                f"{package_count} packs ({allocated_weight:.2f} kg) at "
+                f"GHS {unit_price:.2f} per pack (GHS {calculated_total:.2f})"
             ),
             previous_data=previous_sale,
             new_data=update_data

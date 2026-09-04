@@ -78,6 +78,33 @@ result = db.create_float_attribute(
 result = db.create_string_attribute(
     database_id=db_id,
     collection_id=db_collection_id8,
+    key="pricing_id",
+    size=225,
+    required=False,
+    default=""
+)
+
+result = db.create_enum_attribute(
+    database_id=db_id,
+    collection_id=db_collection_id8,
+    key="price_tier",
+    elements=["Regular", "Bulk"],
+    required=False,
+    default="Regular"
+)
+
+result = db.create_float_attribute(
+    database_id=db_id,
+    collection_id=db_collection_id8,
+    key="unit_price",
+    required=False,
+    min=0,
+    default=0
+)
+
+result = db.create_string_attribute(
+    database_id=db_id,
+    collection_id=db_collection_id8,
     key="delivery_address",
     size=500,
     required=False,
