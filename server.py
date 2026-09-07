@@ -30,6 +30,7 @@ from routes.r29_off_taker_update_requests import collection29_router
 from routes.r30_traceability import traceability_router
 from storage import storage_router
 from auth import auth_router
+from routes.messaging import messaging_router
 from backups import backups_router
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -52,6 +53,7 @@ _allowed_origins = [
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_allowed_origins,
+    allow_origin_regex=r"https?://(localhost|127\.0\.0\.1)(:\d+)?",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -87,6 +89,7 @@ app.include_router(collection17_router)
 app.include_router(collection18_router)
 app.include_router(storage_router)
 app.include_router(auth_router)
+app.include_router(messaging_router)
 app.include_router(backups_router)
 
 @app.get("/debug/headers")

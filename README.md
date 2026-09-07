@@ -33,6 +33,12 @@ For Android Emulator clients, use `http://10.0.2.2:8000` as the API host instead
 
 ## Production
 
+### Team messages
+
+Run `python setup_messaging.py` once with the existing Appwrite server credentials before deploying the messages API. The optional `APPWRITE_MESSAGES_COLLECTION_ID` defaults to `team_messages`. Collection access stays private; clients use the authenticated API, not the Appwrite server key.
+
+The `/messages/conversations` endpoints validate the signed-in Appwrite JWT, isolate direct conversations, persist messages and read receipts, and deduplicate retries with a client request ID. Flutter refreshes messages every five seconds while the inbox is visible. All roles can open Messages from the profile menu. Expired sessions require signing in again. The Flutter and API releases must both be deployed; storage provisioning alone does not enable live chat.
+
 The repository includes a `Dockerfile` for deployment. Provide environment variables through the hosting provider or a protected secret store, then expose the API behind HTTPS and a reverse proxy.
 
 ## Public traceability integration
