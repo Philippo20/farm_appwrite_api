@@ -392,15 +392,53 @@ def logout(authorization: Optional[str] = Header(None)):
         raise HTTPException(status_code=401, detail="Authorization header missing")
     token = authorization.replace("Bearer ", "").strip()
     try:
-        # build user client from JWT and call delete_current_session
         user_client = get_user_client_from_jwt(token)
         account = Account(user_client)
-        try:
-            account.delete_session()
-        except Exception:
-            pass
+        actor = account.get()
+        claims = jwt.decode(token, options={"verify_signature": False})
+        session_id = claims.get("sessionId")
+        if not session_id:
+            raise HTTPException(401, "Please sign in again.")
+        Users(get_server_client()).delete_session(user_id=actor["$id"], session_id=session_id)
         return {"message": "Logged out"}
+    except HTTPException:
+        raise
     except AppwriteException as e:
         raise HTTPException(status_code=e.code or 400, detail=e.message)
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+@auth_router.post("/account/session")
+def refresh_session(authorization: str = Header(default="")):
+    """Refresh a verified session; disclose only the public inactivity policy."""
+    if not authorization.startswith("Bearer "):
+        raise HTTPException(401, "Please sign in again.")
+    token = authorization[7:]
+    try:
+        actor = Account(get_user_client_from_jwt(token)).get()
+        # Appwrite verified this exact token before its claims are inspected.
+        claims = jwt.decode(token, options={"verify_signature": False})
+        session_id = claims.get("sessionId")
+        if not session_id:
+            raise HTTPException(401, "Please sign in again.")
+        users = Users(get_server_client())
+        session = users.get_session(user_id=actor["$id"], session_id=session_id)
+        from datetime import timezone
+        if datetime.datetime.fromisoformat(session["expire"].replace("Z", "+00:00")) <= datetime.datetime.now(timezone.utc):
+            raise HTTPException(401, "Your session has expired.")
+        profiles = db.list_documents(database_id=db_id, collection_id=db_collection_id1,
+                                     queries=[Query.equal("email", actor["email"])])["documents"]
+        if not profiles or profiles[0].get("status", "Active").lower() != "active":
+            raise HTTPException(403, "Your account is not active.")
+        from routes.r18_system_config import _get_or_create_config
+        config = _get_or_create_config()
+        renewed = users.create_jwt(user_id=actor["$id"], session_id=session_id, duration=900)
+        return {"jwt": renewed["jwt"], "session_timeout": config.get("session_timeout") or 30,
+                "session_idle_warning_minutes": config.get("session_idle_warning_minutes") or 5}
+    except HTTPException:
+        raise
+    except AppwriteException as error:
+        if error.code in (401, 403, 404):
+            raise HTTPException(401, "Your session has expired. Please sign in again.") from error
+        raise HTTPException(503, "Unable to verify your session. Try again.") from error
