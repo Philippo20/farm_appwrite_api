@@ -280,11 +280,11 @@ def update_user(
     user_id:str, 
     name: Annotated[str, Form()],
     email: Annotated[EmailStr, Form()],
-    password: Annotated[str, Form()],
     address: Annotated[str, Form()],
     role: Annotated[Role, Form()],
     phone: Annotated[str, Form()],
     department: Annotated[str, Form()],
+    password: Annotated[str, Form()] = "",
     user_status: Annotated[UserStatus, Form(alias="status")] = UserStatus.ACTIVE,
     actor_id: Annotated[str, Form()] = "",
     actor_role: Annotated[str, Form()] = "",
@@ -322,6 +322,21 @@ def update_user(
                   "vehicle_type": vehicle_type.strip() if role == Role.DRIVER else "",
                   "vehicle_capacity_kg": max(vehicle_capacity_kg, 0) if role == Role.DRIVER else 0,
             }
+        if not password:
+            update_data.pop("password")
+        elif len(password) < 8:
+            raise HTTPException(400, "Password must be at least 8 characters")
+        # Appwrite owns credentials. Never save a profile or claim success if
+        # its credential update fails. Unchanged credentials are left alone.
+        try:
+            if name != previous_user.get("name"):
+                auth_users.update_name(user_id=user_id, name=name)
+            if email != previous_user.get("email"):
+                auth_users.update_email(user_id=user_id, email=email)
+            if password:
+                auth_users.update_password(user_id=user_id, password=password)
+        except Exception as error:
+            raise HTTPException(503, "The authentication account could not be updated. Changes were not saved to the profile. Please retry or contact support.") from error
         updated_user = db.update_document(
             database_id=db_id,
             collection_id=db_collection_id1,
@@ -329,20 +344,13 @@ def update_user(
             data=update_data,
             permissions=[]
         )
-        try:
-            auth_users.update_name(user_id=user_id, name=name)
-            auth_users.update_email(user_id=user_id, email=email)
-            if password:
-                auth_users.update_password(user_id=user_id, password=password)
-        except Exception:
-            pass
         write_audit(
             action_type="Update",
             collection_name="Users",
             performed_by_id=actor_id.strip() or user_id,
             performed_by_role=actor_role.strip() or role.value,
             action_details=f"Updated user {email}",
-            previous_data=previous_user,
+            previous_data={**previous_user, "password": "***"},
             new_data={**update_data, "password": "***"}
         )
         return {"message": "User updated successfully", "user": updated_user}
