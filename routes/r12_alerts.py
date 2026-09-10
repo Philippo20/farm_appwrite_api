@@ -25,6 +25,7 @@ class sensorType(str, Enum):
     ELECTRICITY_CURRENT = "electricity_current"
     ELECTRICITY_VOLTAGE = "electricity_voltage"
     ELECTRICITY_WATTAGE = "electricity_wattage"
+    VPD = "VPD"
 
 @collection12_router.post("/alerts/info")
 def register_alerts_info(

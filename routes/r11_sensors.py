@@ -33,6 +33,7 @@ class SensorType(str, Enum):
     ELECTRICITY_CURRENT = "electricity_current"
     ELECTRICITY_VOLTAGE = "electricity_voltage"
     ELECTRICITY_WATTAGE = "electricity_wattage"
+    VPD = "VPD"
 
 class Status(str, Enum):
     ACTIVE = "Active"

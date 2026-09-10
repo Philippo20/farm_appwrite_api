@@ -26,7 +26,7 @@ result = db.create_enum_attribute(
     database_id= db_id,
     collection_id= db_collection_id12,
     key="sensorType",
-    elements=["temperature", "humidity", "Carbon Dioxide", "light", "pH", "ec", "electricity_current", "electricity_voltage", "electricity_wattage"],
+    elements=["temperature", "humidity", "Carbon Dioxide", "light", "pH", "ec", "electricity_current", "electricity_voltage", "electricity_wattage", "VPD"],
     required= True
 )
 
