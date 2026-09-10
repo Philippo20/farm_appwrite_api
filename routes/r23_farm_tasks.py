@@ -1,3 +1,5 @@
+from appwrite.query import Query
+from fastapi import Query as ApiQuery
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Annotated, Optional
@@ -150,11 +152,12 @@ def create_farm_task(
 
 
 @collection23_router.get("/farm-tasks")
-def get_farm_tasks():
+def get_farm_tasks(assigned_to_id: Optional[str] = None, offset: int = ApiQuery(0, ge=0), limit: int = ApiQuery(25, ge=1, le=500)):
     try:
         result = db.list_documents(
             database_id=db_id,
             collection_id=db_collection_id23,
+            queries=[Query.limit(limit), Query.offset(offset), Query.order_desc("$updatedAt"), *([Query.equal("assigned_to_id", [assigned_to_id])] if assigned_to_id else [])],
         )
         return {
             "count": len(result["documents"]),
