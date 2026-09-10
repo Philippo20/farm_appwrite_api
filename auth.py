@@ -417,6 +417,11 @@ def refresh_session(authorization: str = Header(default="")):
     token = authorization[7:]
     try:
         actor = Account(get_user_client_from_jwt(token)).get()
+    except AppwriteException as error:
+        if error.code in (401, 403):
+            raise HTTPException(401, "Your session has expired. Please sign in again.") from error
+        raise HTTPException(503, "Unable to verify your session. Try again.") from error
+    try:
         # Appwrite verified this exact token before its claims are inspected.
         claims = jwt.decode(token, options={"verify_signature": False})
         session_id = claims.get("sessionId")
@@ -439,6 +444,9 @@ def refresh_session(authorization: str = Header(default="")):
     except HTTPException:
         raise
     except AppwriteException as error:
-        if error.code in (401, 403, 404):
+        # Only a missing session proves revocation here. Authentication already
+        # succeeded above; permission failures in these server-key operations
+        # are configuration errors, not an expired user session.
+        if error.code == 404 and getattr(error, "type", "") == "user_session_not_found":
             raise HTTPException(401, "Your session has expired. Please sign in again.") from error
         raise HTTPException(503, "Unable to verify your session. Try again.") from error

@@ -67,3 +67,26 @@ class SessionTests(unittest.TestCase):
         with self.assertRaises(HTTPException): self.call()
         self.claims.decode.assert_not_called()
         self.users.create_jwt.assert_not_called()
+
+    def test_server_key_permission_error_does_not_expire_valid_user(self):
+        error = self.scope['AppwriteException']('Missing server scope')
+        error.code = 401
+        self.users.create_jwt.side_effect = error
+        with self.assertRaises(HTTPException) as result: self.call()
+        self.assertEqual(result.exception.status_code, 503)
+
+    def test_revoked_jwt_is_still_rejected(self):
+        error = self.scope['AppwriteException']('Invalid JWT')
+        error.code = 401
+        self.account.get.side_effect = error
+        with self.assertRaises(HTTPException) as result: self.call()
+        self.assertEqual(result.exception.status_code, 401)
+        self.users.create_jwt.assert_not_called()
+
+    def test_missing_session_is_still_rejected(self):
+        error = self.scope['AppwriteException']('Session gone')
+        error.code = 404
+        error.type = 'user_session_not_found'
+        self.users.get_session.side_effect = error
+        with self.assertRaises(HTTPException) as result: self.call()
+        self.assertEqual(result.exception.status_code, 401)
