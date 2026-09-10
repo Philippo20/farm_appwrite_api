@@ -133,6 +133,7 @@ def signup_user(
 def login_user(
     email: Annotated[EmailStr, Form(...)], 
     password: Annotated[str, Form(...)]):
+    email = str(email).strip().lower()
     try:
         # Create session using SERVER KEY
         server_client = get_server_client()
@@ -170,7 +171,7 @@ def login_user(
             )
 
         user_status = profile.get("status", "Active")
-        if user_status != "Active":
+        if str(user_status).strip().lower() != "active":
             raise HTTPException(
                 status_code=403,
                 detail=f"Login blocked: your account status is {user_status}."
@@ -188,8 +189,16 @@ def login_user(
 
     except HTTPException:
         raise
-    except Exception as e:
-        raise HTTPException(status_code=401, detail=f"Login failed: {str(e)}")
+    except AppwriteException as error:
+        if getattr(error, "type", "") == "user_invalid_credentials":
+            raise HTTPException(401, "Invalid email or password.") from error
+        if getattr(error, "type", "") == "user_blocked":
+            raise HTTPException(403, "Your account is not active.") from error
+        if error.code == 429:
+            raise HTTPException(429, "Too many sign-in attempts. Please try again later.") from error
+        raise HTTPException(503, "Sign-in service is temporarily unavailable. Please try again.") from error
+    except Exception as error:
+        raise HTTPException(503, "Sign-in service is temporarily unavailable. Please try again.") from error
 
 # email verification
 @auth_router.post("/auth/verifications/email")
@@ -428,7 +437,11 @@ def refresh_session(authorization: str = Header(default="")):
         if not session_id:
             raise HTTPException(401, "Please sign in again.")
         users = Users(get_server_client())
-        session = users.get_session(user_id=actor["$id"], session_id=session_id)
+        sessions = users.list_sessions(user_id=actor["$id"])
+        session = next((item for item in sessions.get("sessions", [])
+                        if item.get("$id") == session_id), None)
+        if session is None:
+            raise HTTPException(401, "Your session has expired. Please sign in again.")
         from datetime import timezone
         if datetime.datetime.fromisoformat(session["expire"].replace("Z", "+00:00")) <= datetime.datetime.now(timezone.utc):
             raise HTTPException(401, "Your session has expired.")

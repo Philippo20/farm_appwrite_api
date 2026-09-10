@@ -5,7 +5,9 @@ from pathlib import Path
 import sys
 import types
 import unittest
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, patch, create_autospec
+from appwrite.services.users import Users
+from appwrite.services.account import Account
 
 
 class HTTPException(Exception):
@@ -18,10 +20,10 @@ class SessionTests(unittest.TestCase):
         tree = ast.parse(Path('auth.py').read_text())
         function = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'refresh_session')
         function.decorator_list = []
-        self.account = Mock()
+        self.account = create_autospec(Account, instance=True, spec_set=True)
         self.account.get.return_value = {'$id': 'alice', 'email': 'alice@test.com'}
-        self.users = Mock()
-        self.users.get_session.return_value = {'expire': '2099-01-01T00:00:00Z'}
+        self.users = create_autospec(Users, instance=True, spec_set=True)
+        self.users.list_sessions.return_value = {'sessions': [{'$id': 'verified-session', 'expire': '2099-01-01T00:00:00Z'}]}
         self.users.create_jwt.return_value = {'jwt': 'renewed'}
         self.db = Mock()
         self.db.list_documents.return_value = {'documents': [{'status': 'Active'}]}
@@ -51,7 +53,7 @@ class SessionTests(unittest.TestCase):
         self.account.get.assert_not_called()
 
     def test_expired_session_cannot_be_renewed(self):
-        self.users.get_session.return_value = {'expire': '2020-01-01T00:00:00Z'}
+        self.users.list_sessions.return_value = {'sessions': [{'$id': 'verified-session', 'expire': '2020-01-01T00:00:00Z'}]}
         with self.assertRaises(HTTPException) as error: self.call()
         self.assertEqual(error.exception.status_code, 401)
         self.users.create_jwt.assert_not_called()
@@ -87,6 +89,49 @@ class SessionTests(unittest.TestCase):
         error = self.scope['AppwriteException']('Session gone')
         error.code = 404
         error.type = 'user_session_not_found'
-        self.users.get_session.side_effect = error
+        self.users.list_sessions.side_effect = error
         with self.assertRaises(HTTPException) as result: self.call()
+        self.assertEqual(result.exception.status_code, 401)
+
+    def test_different_session_cannot_replace_token_session(self):
+        self.users.list_sessions.return_value = {'sessions': [{'$id': 'another', 'expire': '2099-01-01T00:00:00Z'}]}
+        with self.assertRaises(HTTPException) as result: self.call()
+        self.assertEqual(result.exception.status_code, 401)
+        self.users.create_jwt.assert_not_called()
+
+class LoginTests(unittest.TestCase):
+    def setUp(self):
+        SessionTests.setUp(self)
+        tree = ast.parse(Path('auth.py').read_text())
+        function = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'login_user')
+        function.decorator_list = []
+        for arg in function.args.args:
+            arg.annotation = None
+        from appwrite.client import Client
+        self.client = create_autospec(Client, instance=True, spec_set=True)
+        self.scope.update(Client=lambda: self.client, os=types.SimpleNamespace(getenv=lambda *args: 'test'))
+        self.account.create_email_password_session.return_value = {'$id': 'new-session', 'secret': 'session-secret'}
+        self.account.create_jwt.return_value = {'jwt': 'fresh-token'}
+        self.db.list_documents.return_value = {'total': 1, 'documents': [{'status': 'Active', 'email': 'new@example.com'}]}
+        exec(compile(ast.Module(body=[function], type_ignores=[]), 'auth.py', 'exec'), self.scope)
+
+    def test_new_user_login_preserves_password_and_normalizes_email(self):
+        result = self.scope['login_user'](' New@Example.com ', ' password with spaces ')
+        self.account.create_email_password_session.assert_called_once_with(email='new@example.com', password=' password with spaces ')
+        self.assertEqual(result['jwt'], 'fresh-token')
+        self.assertEqual(result['session_id'], 'new-session')
+
+    def test_profile_failure_is_not_invalid_credentials(self):
+        self.db.list_documents.side_effect = RuntimeError('Database unavailable')
+        with self.assertRaises(HTTPException) as result:
+            self.scope['login_user']('new@example.com', 'password')
+        self.assertEqual(result.exception.status_code, 503)
+
+    def test_wrong_password_remains_401(self):
+        error = self.scope['AppwriteException']('Wrong password')
+        error.code = 401
+        error.type = 'user_invalid_credentials'
+        self.account.create_email_password_session.side_effect = error
+        with self.assertRaises(HTTPException) as result:
+            self.scope['login_user']('new@example.com', 'wrong')
         self.assertEqual(result.exception.status_code, 401)

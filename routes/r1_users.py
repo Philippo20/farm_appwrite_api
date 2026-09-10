@@ -110,6 +110,7 @@ def register_user(
         ):
 
     _validate_driver_manager(role, actor_role)
+    email = str(email).strip().lower()
     _validate_driver_profile(
         role,
         driver_license_number,
