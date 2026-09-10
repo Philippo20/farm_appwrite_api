@@ -99,6 +99,25 @@ class MessagingTests(unittest.TestCase):
         chats = self.client.get("/messages/conversations").json()["conversations"]
         self.assertEqual(next(chat for chat in chats if chat["id"] == "alice")["unread"], 1)
 
+    def test_notifications_are_private_persistent_and_deduplicated(self):
+        saved = self.send().json()
+        self.send()  # A retried send must not create a second alert.
+        self.assertEqual(self.client.get("/messages/notifications").json()["notifications"], [])
+        self.actor("eve")
+        self.assertEqual(self.client.get("/messages/notifications").json()["notifications"], [])
+        self.actor("bob")
+        rows = self.client.get("/messages/notifications").json()["notifications"]
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["peer_id"], "alice")
+        self.assertEqual(rows[0]["message_id"], saved["id"])
+        self.assertFalse(rows[0]["is_read"])
+        self.client.post("/messages/conversations/alice/read", json={"message_ids": [saved["id"]]})
+        self.assertTrue(self.client.get("/messages/notifications").json()["notifications"][0]["is_read"])
+
+    def test_notifications_require_authentication(self):
+        self.app.dependency_overrides.clear()
+        self.assertEqual(self.client.get("/messages/notifications").status_code, 401)
+
 
 if __name__ == "__main__":
     unittest.main()

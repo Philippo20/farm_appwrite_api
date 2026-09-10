@@ -8,7 +8,7 @@ from fastapi import APIRouter, Form, HTTPException, status as http_status
 
 from audit_utils import write_audit
 from db import db
-from main import db_collection_id5, db_collection_id24, db_id
+from main import db_collection_id5, db_collection_id7, db_collection_id24, db_id
 from routes.r25_notifications import create_notification
 
 collection24_router = APIRouter(tags=["Farm Records"])
@@ -40,6 +40,39 @@ def _int_or_none(value: str) -> Optional[int]:
     if value is None or str(value).strip() == "":
         return None
     return int(value)
+
+
+def _ensure_batch_open(batch):
+    complete = {"delivered", "complete", "completed"}
+    closed = any(str(batch.get(key) or "").strip().casefold() in complete
+                 for key in ("production_status", "delivery_status", "status"))
+    references = {str(batch.get(key) or "").strip().casefold()
+                  for key in ("$id", "id", "batch_id", "batch_no", "batch_number", "batch_code")}
+    references.discard("")
+    offset = 0
+    while not closed and references:
+        documents = db.list_documents(
+            database_id=db_id, collection_id=db_collection_id7,
+            queries=[Query.limit(100), Query.offset(offset)],
+        ).get("documents", [])
+        for item in documents:
+            linked = any(str(item.get(key) or "").strip().casefold() in references
+                         for key in ("batch_id", "batch_no", "batch_number", "batch_code"))
+            received = str(item.get("delivery_status") or "").strip().casefold() == "delivered"
+            received = received or str(item.get("status") or "").strip().casefold() in {
+                "received", "packaging", "packaged", "sent to sales", "completed"
+            }
+            if linked and received:
+                closed = True
+                break
+        if len(documents) < 100:
+            break
+        offset += len(documents)
+    if closed:
+        raise HTTPException(status_code=409, detail=(
+            "This batch is complete after delivery to fulfillment. "
+            "No further caretaker records can be taken."
+        ))
 
 
 @collection24_router.get("/farm-records")
@@ -122,7 +155,7 @@ def create_farm_record(
     has_batch_update = any(value is not None for value in progress_values.values()) or (
         has_issues and bool(batch_id.strip())
     )
-    if has_batch_update:
+    if has_batch_update or batch_id.strip():
         if not batch_id.strip():
             raise HTTPException(
                 status_code=http_status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -139,6 +172,8 @@ def create_farm_record(
                 status_code=http_status.HTTP_404_NOT_FOUND,
                 detail="The selected batch no longer exists.",
             ) from error
+
+        _ensure_batch_open(batch)
 
         if str(batch.get("farmID") or "").strip() != farm_id.strip():
             raise HTTPException(

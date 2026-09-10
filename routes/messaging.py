@@ -107,6 +107,23 @@ class MessageInput(BaseModel):
     request_id: str = Field(min_length=16, max_length=100, pattern=r"^[A-Za-z0-9_-]+$")
 
 
+@messaging_router.get("/notifications")
+def message_notifications(actor=Depends(current_member)):
+    """Inbox notifications share the persisted message read state on every device."""
+    incoming = _all(MESSAGES, [Query.equal("recipient_id", actor["$id"])])
+    names = {member["$id"]: member.get("name", "Team member")
+             for member in _all(db_collection_id1, [])}
+    incoming.sort(key=lambda row: (row["$createdAt"], row["$id"]), reverse=True)
+    return {"notifications": [
+        {"id": "message:" + row["$id"], "message_id": row["$id"],
+         "peer_id": row["sender_id"],
+         "title": names.get(row["sender_id"], "Team member"),
+         "message": row["text"], "created_at": row["$createdAt"],
+         "is_read": bool(row.get("read_at"))}
+        for row in incoming
+    ]}
+
+
 @messaging_router.post("/conversations/{peer_id}")
 def send_message(peer_id: str, payload: MessageInput, actor=Depends(current_member)):
     peer = _peer(peer_id, actor)
