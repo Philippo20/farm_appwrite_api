@@ -1,3 +1,4 @@
+from sensor_capabilities import with_sensor_capabilities
 import os
 import re
 
@@ -319,7 +320,7 @@ def get_sensor_info(sensors_id:str):
             collection_id= db_collection_id11,
             document_id= sensors_id
         )
-        return user
+        return with_sensor_capabilities(user)
     except Exception as e:
         raise HTTPException(
             status_code=http_status.HTTP_404_NOT_FOUND,
@@ -368,7 +369,7 @@ def get_all_sensors():
         )
 
         # Extract the list of users
-        sensor_users = result["documents"]
+        sensor_users = [with_sensor_capabilities(sensor) for sensor in result["documents"]]
 
         return {
             "count": len(sensor_users),
