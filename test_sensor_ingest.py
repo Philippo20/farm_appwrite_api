@@ -6,7 +6,7 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 
-API_URL = os.getenv("SENSOR_API_URL", "http://127.0.0.1:8000/sensors/ingest")
+API_URL = os.getenv("SENSOR_API_URL", "https://api-5u45d.ondigitalocean.app/sensors/ingest")
 FARM_ID = os.getenv("FARM_ID", "demo-farm-001").strip()
 FARM_NAME = os.getenv("FARM_NAME", "Demo Test Farm").strip()
 SENSOR_KEY = (
