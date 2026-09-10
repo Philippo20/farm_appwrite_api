@@ -1,6 +1,8 @@
 """Exercise the production session handler with isolated Appwrite dependencies."""
 import ast
 import datetime
+import uuid
+import json
 from pathlib import Path
 import sys
 import types
@@ -13,6 +15,7 @@ from appwrite.services.account import Account
 class HTTPException(Exception):
     def __init__(self, status_code, detail):
         self.status_code = status_code
+        self.detail = detail
 
 
 class SessionTests(unittest.TestCase):
@@ -109,7 +112,8 @@ class LoginTests(unittest.TestCase):
             arg.annotation = None
         from appwrite.client import Client
         self.client = create_autospec(Client, instance=True, spec_set=True)
-        self.scope.update(Client=lambda: self.client, os=types.SimpleNamespace(getenv=lambda *args: 'test'))
+        self.scope.update(Client=lambda: self.client, os=types.SimpleNamespace(getenv=lambda *args: 'test'),
+                          uuid=uuid, json=json, login_logger=Mock(), _login_diagnostics=Mock(return_value={'profile_active': True, 'auth_account_count': 0}))
         self.account.create_email_password_session.return_value = {'$id': 'new-session', 'secret': 'session-secret'}
         self.account.create_jwt.return_value = {'jwt': 'fresh-token'}
         self.db.list_documents.return_value = {'total': 1, 'documents': [{'status': 'Active', 'email': 'new@example.com'}]}
@@ -135,3 +139,30 @@ class LoginTests(unittest.TestCase):
         with self.assertRaises(HTTPException) as result:
             self.scope['login_user']('new@example.com', 'wrong')
         self.assertEqual(result.exception.status_code, 401)
+
+    def test_credential_log_has_reference_and_no_secrets(self):
+        error = self.scope['AppwriteException']('SECRET-UPSTREAM-MESSAGE')
+        error.code = 401
+        error.type = 'user_invalid_credentials'
+        self.account.create_email_password_session.side_effect = error
+        with self.assertRaises(HTTPException) as result:
+            self.scope['login_user']('private@example.com', 'SECRET-PASSWORD')
+        args = self.scope['login_logger'].warning.call_args.args
+        payload = json.loads(args[1])
+        self.assertEqual(payload['stage'], 'create_password_session')
+        self.assertEqual(payload['reason'], 'user_invalid_credentials')
+        self.assertEqual(payload['auth_account_count'], 0)
+        self.assertIn(payload['reference'], result.exception.detail)
+        for secret in ('private@example.com', 'SECRET-PASSWORD', 'SECRET-UPSTREAM-MESSAGE', 'session-secret'):
+            self.assertNotIn(secret, str(args))
+        self.assertNotIn('auth_account_count', result.exception.detail)
+
+    def test_diagnostics_detect_approved_profile_with_missing_auth_account(self):
+        tree = ast.parse(Path('auth.py').read_text())
+        function = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == '_login_diagnostics')
+        exec(compile(ast.Module(body=[function], type_ignores=[]), 'auth.py', 'exec'), self.scope)
+        self.users.list.return_value = {'total': 0, 'users': []}
+        diagnostics = self.scope['_login_diagnostics']('new@example.com')
+        self.assertTrue(diagnostics['profile_active'])
+        self.assertEqual(diagnostics['auth_account_count'], 0)
+        self.users.create_jwt.assert_not_called()

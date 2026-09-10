@@ -15,6 +15,9 @@ import os
 from dotenv import load_dotenv
 import jwt
 import datetime
+import logging
+import uuid
+import json
 
 load_dotenv()
 
@@ -128,12 +131,54 @@ def signup_user(
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-# login 
+login_logger = logging.getLogger("uvicorn.error")
+
+
+def _login_diagnostics(email):
+    """Read-only account linkage checks. Never return these to anonymous clients."""
+    result = {}
+    profile_id = None
+    try:
+        profiles = db.list_documents(database_id=db_id, collection_id=db_collection_id1,
+                                     queries=[Query.equal("email", email), Query.limit(2)])
+        rows = profiles.get("documents", [])
+        result["profile_count"] = profiles.get("total", len(rows))
+        if rows:
+            profile_id = rows[0].get("$id")
+            result["profile_active"] = str(rows[0].get("status", "Active")).strip().lower() == "active"
+    except Exception:
+        result["profile_lookup_failed"] = True
+    try:
+        accounts = Users(get_server_client()).list(queries=[Query.equal("email", email), Query.limit(2)])
+        rows = accounts.get("users", [])
+        result["auth_account_count"] = accounts.get("total", len(rows))
+        if rows:
+            result["auth_enabled"] = rows[0].get("status") is True
+            result["email_verified"] = rows[0].get("emailVerification") is True
+            result["profile_auth_ids_match"] = profile_id is not None and profile_id == rows[0].get("$id")
+    except Exception:
+        result["auth_lookup_failed"] = True
+    return result
+
+
+# login
 @auth_router.post("/account/login")
 def login_user(
     email: Annotated[EmailStr, Form(...)], 
     password: Annotated[str, Form(...)]):
     email = str(email).strip().lower()
+    reference = uuid.uuid4().hex[:12]
+    stage = "create_password_session"
+
+    def reject(code, reason, message, upstream_code=None, diagnose=False):
+        details = _login_diagnostics(email) if diagnose else {}
+        # Do not log raw upstream exceptions, requests, profiles, or credentials.
+        login_logger.warning("login_rejected %s", json.dumps({
+            "reference": reference, "stage": stage, "reason": reason,
+            "http_status": code, "upstream_status": upstream_code, **details,
+        }))
+        return HTTPException(code, f"{message} Support reference: {reference}.")
+
     try:
         # Create session using SERVER KEY
         server_client = get_server_client()
@@ -144,6 +189,7 @@ def login_user(
             password=password
         )
 
+        stage = "initialize_user_session"
         # Create a USER client using the session cookie
         user_client = Client()
         user_client.set_endpoint(os.getenv("APPWRITE_ENDPOINT"))
@@ -158,6 +204,7 @@ def login_user(
 
         user_account = Account(user_client)
 
+        stage = "load_profile"
         profile_result = db.list_documents(
             database_id=db_id,
             collection_id=db_collection_id1,
@@ -165,19 +212,14 @@ def login_user(
         )
         profile = profile_result["documents"][0] if profile_result["total"] > 0 else None
         if not profile:
-            raise HTTPException(
-                status_code=403,
-                detail="Login blocked: user profile was not found."
-            )
+            raise reject(403, "profile_missing", "Login blocked: user profile was not found.")
 
         user_status = profile.get("status", "Active")
         if str(user_status).strip().lower() != "active":
-            raise HTTPException(
-                status_code=403,
-                detail=f"Login blocked: your account status is {user_status}."
-            )
+            raise reject(403, "profile_not_active", "Login blocked: your account is not active.")
 
         # Now create JWT using user session client (NOT server key)
+        stage = "create_jwt"
         jwt_result = user_account.create_jwt()
 
         return {
@@ -191,14 +233,14 @@ def login_user(
         raise
     except AppwriteException as error:
         if getattr(error, "type", "") == "user_invalid_credentials":
-            raise HTTPException(401, "Invalid email or password.") from error
+            raise reject(401, "user_invalid_credentials", "Email or password was not accepted. Account approval does not change your password.", error.code, diagnose=True) from error
         if getattr(error, "type", "") == "user_blocked":
-            raise HTTPException(403, "Your account is not active.") from error
+            raise reject(403, "user_blocked", "Your account is not active.", error.code, diagnose=True) from error
         if error.code == 429:
-            raise HTTPException(429, "Too many sign-in attempts. Please try again later.") from error
-        raise HTTPException(503, "Sign-in service is temporarily unavailable. Please try again.") from error
+            raise reject(429, "rate_limited", "Too many sign-in attempts. Please try again later.", error.code) from error
+        raise reject(503, "upstream_service_error", "Sign-in service is temporarily unavailable. Please try again.", error.code) from error
     except Exception as error:
-        raise HTTPException(503, "Sign-in service is temporarily unavailable. Please try again.") from error
+        raise reject(503, "internal_error", "Sign-in service is temporarily unavailable. Please try again.") from error
 
 # email verification
 @auth_router.post("/auth/verifications/email")
