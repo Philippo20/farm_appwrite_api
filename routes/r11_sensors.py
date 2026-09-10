@@ -1,4 +1,5 @@
 from sensor_capabilities import with_sensor_capabilities
+from fastapi import Query as ApiQuery
 import os
 import re
 
@@ -343,9 +344,25 @@ def get_sensor_readings():
 
 
 @collection11_router.get("/sensors/{serial_number}/readings")
-def get_sensor_readings_by_serial(serial_number: str):
+def get_sensor_readings_by_serial(
+    serial_number: str,
+    start: Optional[datetime] = None,
+    end: Optional[datetime] = None,
+    offset: int = ApiQuery(0, ge=0),
+):
     if not db_collection_id21:
         raise HTTPException(status_code=500, detail="APPWRITE_COLLECTION_ID21 is not configured")
+    if start is not None and start.tzinfo is None:
+        start = start.replace(tzinfo=timezone.utc)
+    if end is not None and end.tzinfo is None:
+        end = end.replace(tzinfo=timezone.utc)
+    if start is not None and end is not None and start >= end:
+        raise HTTPException(status_code=400, detail="Start must be before end")
+    filters = []
+    if start is not None:
+        filters.append(Query.greater_than_equal("timestamp", start.astimezone(timezone.utc).isoformat()))
+    if end is not None:
+        filters.append(Query.less_than("timestamp", end.astimezone(timezone.utc).isoformat()))
     try:
         result = db.list_documents(
             database_id=db_id,
@@ -354,6 +371,8 @@ def get_sensor_readings_by_serial(serial_number: str):
                 Query.equal("serial_number", [serial_number]),
                 Query.order_desc("timestamp"),
                 Query.limit(500),
+                Query.offset(offset),
+                *filters,
             ],
         )
         return {"count": result["total"], "users": result["documents"]}
