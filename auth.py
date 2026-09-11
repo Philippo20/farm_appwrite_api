@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Form, Header, HTTPException, Depends, Request
+from fastapi import APIRouter, Form, Header, HTTPException, Depends, Request, Body
 from appwrite.services.account import Account
 from appwrite.services.users import Users
 from appwrite.client import Client
@@ -271,23 +271,48 @@ def send_verification_email(authorization: Optional[str] = Header(None)):
         # except Exception as e:
         #     return {"error": str(e)}
 
-# create password recovery
+def _recovery_account():
+    recovery_client = Client()
+    recovery_client.set_endpoint(os.getenv("APPWRITE_ENDPOINT"))
+    recovery_client.set_project(os.getenv("APPWRITE_PROJECT_ID"))
+    return Account(recovery_client)
+
+
+# Recovery remains handled by Appwrite's one-use email tokens.
 @auth_router.post("/account/recovery")
 def create_password_recovery(email: Annotated[EmailStr, Form()]):
     try:
-        client = Client()
-        client.set_endpoint(os.getenv("APPWRITE_ENDPOINT"))
-        client.set_project(os.getenv("APPWRITE_PROJECT_ID"))
-        client.set_session('')
-
-        account=Account(client)
-        result = account.create_recovery(
-                    email = email,
-                    url = "https://oyster-app-moqn5.ondigitalocean.app/#/reset-password"
+        _recovery_account().create_recovery(
+            email=str(email),
+            url=os.getenv("PASSWORD_RESET_URL", "https://apps.farmestates.farm/#/reset-password"),
         )
-        return {"message": "Verification email sent", "verification_id": result["$id"]}
-    except Exception as e:
-        return {"error": str(e)}
+    except AppwriteException as error:
+        if error.code == 429:
+            raise HTTPException(429, "Too many requests. Please wait before requesting another reset link.") from error
+        if error.code != 404:
+            raise HTTPException(503, "Unable to send the reset email right now. Please try again later.") from error
+    return {"message": "If an account exists for this email, a reset link will be sent."}
+
+
+@auth_router.post("/account/recovery/confirm")
+def confirm_password_recovery(payload: dict = Body(...)):
+    user_id = payload.get("user_id")
+    secret = payload.get("secret")
+    password = payload.get("password")
+    if not all(isinstance(value, str) and value for value in (user_id, secret, password)):
+        raise HTTPException(422, "A complete reset link and new password are required.")
+    from routes.r18_system_config import _get_or_create_config
+    minimum = max(8, int(_get_or_create_config().get("password_min_length") or 8))
+    if len(password) < minimum or len(password) > 256:
+        raise HTTPException(422, f"Password must contain between {minimum} and 256 characters.")
+    try:
+        _recovery_account().update_recovery(user_id=user_id, secret=secret, password=password)
+    except AppwriteException as error:
+        if error.code in {400, 401, 403, 404}:
+            raise HTTPException(400, "This reset link is invalid or expired, or the password does not meet the account policy. Request a new link or choose a stronger password.") from error
+        raise HTTPException(503, "Unable to reset the password right now. Please try again later.") from error
+    return {"message": "Password updated successfully."}
+
 
 # Confirm verification
 @auth_router.get("/verify/confirm")

@@ -144,3 +144,15 @@ other types use Workflow alerts. Background delivery is best-effort, with two
 workers and a bounded queue; process termination or delivery failures can lose
 an email, while in-app notifications remain persisted. No automatic retry is
 attempted. Verification and password reset still use Appwrite's own mail setup.
+
+## Password recovery
+
+The login Forgot Password link opens `/forgot-password`. Appwrite sends recovery
+emails via `POST /account/recovery`. Set `PASSWORD_RESET_URL` to the deployed web
+app reset page (default `https://apps.farmestates.farm/#/reset-password`) and
+allow that host in the Appwrite project platforms. The Flutter reset route reads
+Appwrite's `userId` and `secret` query parameters, including parameters before
+the URL fragment. Completion uses `POST /account/recovery/confirm` with a JSON
+body, keeping new passwords out of API query strings. Request responses do not
+reveal whether an email is registered. SMTP settings in System Config do not
+replace Appwrite's authentication mail transport.
