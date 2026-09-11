@@ -156,3 +156,12 @@ the URL fragment. Completion uses `POST /account/recovery/confirm` with a JSON
 body, keeping new passwords out of API query strings. Request responses do not
 reveal whether an email is registered. SMTP settings in System Config do not
 replace Appwrite's authentication mail transport.
+# Alert email templates
+
+SMTP alerts and the System Config test email use a shared responsive HTML template
+with a plain-text alternative. Alerts include the recipient profile name and role,
+the actual notification title/message, and an Open Farm Estates button. All roles
+use the same template and existing global/category email preferences still apply.
+Set optional `EMAIL_APP_URL` to the HTTPS application sign-in URL; it defaults to
+`https://apps.farmestates.farm/`. No database migration is required. This template
+does not change Appwrite-managed verification or password recovery emails.

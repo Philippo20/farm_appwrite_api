@@ -33,7 +33,8 @@ def _deliver(recipient_id, title, message, kind):
         user = db.get_document(database_id=db_id, collection_id=db_collection_id1, document_id=recipient_id)
         if str(user.get('status', '')).lower() != 'active' or not user.get('email'):
             return
-        send_email(config, user['email'], title, message, category)
+        send_email(config, user['email'], title, message, category,
+                   recipient_name=user.get('name', ''), recipient_role=user.get('role', ''))
     except Exception:
         # Do not log SMTP credentials, recipient details, or provider responses.
         _log.warning('Notification email could not be delivered; in-app notification retained')

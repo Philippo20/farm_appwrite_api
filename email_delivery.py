@@ -7,6 +7,7 @@ from email.utils import formataddr
 from cryptography.fernet import Fernet
 from pydantic import BaseModel, Field, EmailStr, model_validator
 from typing import Literal
+from email_templates import render_alert
 
 
 class EmailSettings(BaseModel):
@@ -68,7 +69,7 @@ def public_settings(settings):
             'password_configured': bool(settings.get('password_encrypted'))}
 
 
-def send_email(settings, recipient, subject, body, category=None):
+def send_email(settings, recipient, subject, body, category=None, *, recipient_name='', recipient_role=''):
     if category is not None:
         if category not in {'farm_alerts', 'workflow_alerts', 'account_alerts'}:
             raise ValueError('Unsupported email category')
@@ -82,7 +83,11 @@ def send_email(settings, recipient, subject, body, category=None):
     message['Subject'] = subject
     if settings.get('reply_to'):
         message['Reply-To'] = settings['reply_to']
-    message.set_content(body)
+    plain, html = render_alert(subject, body, recipient_name=recipient_name,
+                               recipient_role=recipient_role, category=category,
+                               brand=settings.get('sender_name', 'Farm Estates'))
+    message.set_content(plain)
+    message.add_alternative(html, subtype='html')
     context = ssl.create_default_context()
     factory = smtplib.SMTP_SSL if settings.get('security') == 'ssl' else smtplib.SMTP
     kwargs = {'timeout': 15}

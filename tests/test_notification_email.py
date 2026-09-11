@@ -30,10 +30,11 @@ class NotificationEmailTest(unittest.TestCase):
         self.assertEqual(self.db.get_document.call_count, 1)
 
     def test_category_and_active_recipient_used(self):
-        self.db.get_document.side_effect = [{'email_notifications': True}, {'email_settings_json': json.dumps({'enabled': True, 'farm_alerts': True})}, {'status': 'Active', 'email': 'recipient@example.com'}]
+        self.db.get_document.side_effect = [{'email_notifications': True}, {'email_settings_json': json.dumps({'enabled': True, 'farm_alerts': True})}, {'status': 'Active', 'email': 'recipient@example.com', 'name': 'Ama', 'role': 'farm_manager'}]
         self.module._deliver('user', 'Title', 'Body', 'batch')
         self.assertEqual(self.module.send_email.call_args.args[-1], 'farm_alerts')
         self.assertEqual(self.module.send_email.call_args.args[1], 'recipient@example.com')
+        self.assertEqual(self.module.send_email.call_args.kwargs, {'recipient_name': 'Ama', 'recipient_role': 'farm_manager'})
 
     def test_disabled_category_prevents_email(self):
         self.db.get_document.side_effect = [{'email_notifications': True}, {'email_settings_json': json.dumps({'enabled': True, 'workflow_alerts': False})}]

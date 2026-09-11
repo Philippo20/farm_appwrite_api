@@ -18,6 +18,7 @@ import datetime
 import logging
 import uuid
 import json
+from recovery_diagnostics import log_recovery_failure
 
 load_dotenv()
 
@@ -287,10 +288,15 @@ def create_password_recovery(email: Annotated[EmailStr, Form()]):
             url=os.getenv("PASSWORD_RESET_URL", "https://apps.farmestates.farm/#/reset-password"),
         )
     except AppwriteException as error:
+        if error.code == 404 and getattr(error, 'type', '') == 'user_not_found':
+            return {"message": "If an account exists for this email, a reset link will be sent."}
+        reference = log_recovery_failure(error, 'request')
         if error.code == 429:
             raise HTTPException(429, "Too many requests. Please wait before requesting another reset link.") from error
-        if error.code != 404:
-            raise HTTPException(503, "Unable to send the reset email right now. Please try again later.") from error
+        raise HTTPException(503, f"Unable to send the reset email right now. Please try again later. Reference: {reference}") from error
+    except Exception as error:
+        reference = log_recovery_failure(error, 'request')
+        raise HTTPException(503, f"Unable to reach the password recovery service. Please try again later. Reference: {reference}") from error
     return {"message": "If an account exists for this email, a reset link will be sent."}
 
 
@@ -310,7 +316,8 @@ def confirm_password_recovery(payload: dict = Body(...)):
     except AppwriteException as error:
         if error.code in {400, 401, 403, 404}:
             raise HTTPException(400, "This reset link is invalid or expired, or the password does not meet the account policy. Request a new link or choose a stronger password.") from error
-        raise HTTPException(503, "Unable to reset the password right now. Please try again later.") from error
+        reference = log_recovery_failure(error, 'confirm')
+        raise HTTPException(503, f"Unable to reset the password right now. Please try again later. Reference: {reference}") from error
     return {"message": "Password updated successfully."}
 
 

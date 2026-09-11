@@ -3,6 +3,7 @@ import os
 import sys
 import types
 import unittest
+from recovery_diagnostics import log_recovery_failure
 from pathlib import Path
 from unittest.mock import Mock, patch
 
@@ -11,7 +12,8 @@ class HTTPException(Exception):
         self.status_code, self.detail = status_code, detail
 
 class AppwriteException(Exception):
-    def __init__(self, code): self.code = code
+    def __init__(self, code, kind=''):
+        self.code, self.type = code, kind
 
 class RecoveryTests(unittest.TestCase):
     def setUp(self):
@@ -21,7 +23,7 @@ class RecoveryTests(unittest.TestCase):
             node.args.defaults = []
             for arg in node.args.args: arg.annotation = None
         self.account = Mock()
-        self.scope = {'_recovery_account': lambda: self.account, 'HTTPException': HTTPException, 'AppwriteException': AppwriteException, 'os': os}
+        self.scope = {'_recovery_account': lambda: self.account, 'HTTPException': HTTPException, 'AppwriteException': AppwriteException, 'os': os, 'log_recovery_failure': log_recovery_failure}
         config = types.ModuleType('routes.r18_system_config')
         config._get_or_create_config = lambda: {'password_min_length': 10}
         self.modules = patch.dict(sys.modules, {'routes.r18_system_config': config})
@@ -31,7 +33,7 @@ class RecoveryTests(unittest.TestCase):
 
     def test_unknown_email_does_not_reveal_account_existence(self):
         expected = self.scope['create_password_recovery']('user@example.com')
-        self.account.create_recovery.side_effect = AppwriteException(404)
+        self.account.create_recovery.side_effect = AppwriteException(404, 'user_not_found')
         self.assertEqual(self.scope['create_password_recovery']('unknown@example.com'), expected)
 
     def test_mail_service_failure_not_reported_as_success(self):
@@ -51,3 +53,39 @@ class RecoveryTests(unittest.TestCase):
         self.account.update_recovery.side_effect = AppwriteException(401)
         with self.assertRaises(HTTPException) as caught: self.scope['confirm_password_recovery']({'user_id': 'user', 'secret': 'expired', 'password': 'valid-password'})
         self.assertEqual(caught.exception.status_code, 400)
+
+    def test_project_not_found_is_not_silently_reported_as_success(self):
+        self.account.create_recovery.side_effect = AppwriteException(404, 'project_not_found')
+        with self.assertLogs('uvicorn.error') as logs:
+            with self.assertRaises(HTTPException) as caught:
+                self.scope['create_password_recovery']('user@example.com')
+        self.assertEqual(caught.exception.status_code, 503)
+        self.assertIn('project_not_found', logs.output[0])
+        self.assertIn('Reference:', caught.exception.detail)
+
+    def test_smtp_diagnostic_excludes_private_provider_message(self):
+        error = AppwriteException(503, 'general_smtp_disabled')
+        error.args = ('private@example.com secret-token smtp-password',)
+        self.account.create_recovery.side_effect = error
+        with self.assertLogs('uvicorn.error') as logs:
+            with self.assertRaises(HTTPException):
+                self.scope['create_password_recovery']('private@example.com')
+        output = logs.output[0]
+        self.assertIn('general_smtp_disabled', output)
+        for private in ('private@example.com', 'secret-token', 'smtp-password'):
+            self.assertNotIn(private, output)
+
+    def test_transport_failure_returns_reference(self):
+        self.account.create_recovery.side_effect = ConnectionError('private endpoint')
+        with self.assertLogs('uvicorn.error'):
+            with self.assertRaises(HTTPException) as caught:
+                self.scope['create_password_recovery']('user@example.com')
+        self.assertEqual(caught.exception.status_code, 503)
+        self.assertIn('Reference:', caught.exception.detail)
+
+    def test_rate_limit_is_preserved(self):
+        self.account.create_recovery.side_effect = AppwriteException(429, 'general_rate_limit_exceeded')
+        with self.assertLogs('uvicorn.error'):
+            with self.assertRaises(HTTPException) as caught:
+                self.scope['create_password_recovery']('user@example.com')
+        self.assertEqual(caught.exception.status_code, 429)

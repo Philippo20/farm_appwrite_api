@@ -36,6 +36,10 @@ class EmailSettingsTest(unittest.TestCase):
             smtp.starttls.assert_called_once()
             smtp.login.assert_called_once_with('user', 'secret')
             smtp.send_message.assert_called_once()
+            message = smtp.send_message.call_args.args[0]
+            self.assertEqual(message.get_content_type(), 'multipart/alternative')
+            self.assertIn('Body', message.get_body(preferencelist=('plain',)).get_content())
+            self.assertIn('Open Farm Estates', message.get_body(preferencelist=('html',)).get_content())
             calls = [call[0] for call in smtp.method_calls]
             self.assertLess(calls.index('starttls'), calls.index('login'))
 
