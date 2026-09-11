@@ -1,3 +1,4 @@
+from document_paging import list_all_documents
 from fastapi import APIRouter, Form, HTTPException, status
 from typing import Annotated
 from enum import Enum
@@ -483,7 +484,7 @@ def register_sales(
 @collection8_router.get("/sales")
 def get_all_sales_infos():
     try:
-        result = db.list_documents(
+        result = list_all_documents(db,
             database_id=db_id,
             collection_id=db_collection_id8
         )

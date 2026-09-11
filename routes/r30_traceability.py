@@ -16,6 +16,8 @@ from appwrite.query import Query
 from fastapi import APIRouter, Body, HTTPException, Request, status
 from pydantic import BaseModel, Field
 
+from traceability_device import device_details
+from traceability_network import visitor_ip, visitor_location
 from audit_utils import write_audit
 from db import db
 from main import (
@@ -127,43 +129,13 @@ def _trusted_proxy_request(request: Request) -> bool:
     return bool(expected and supplied and secrets.compare_digest(expected, supplied))
 
 
-def _normalize_ip(candidate: Any) -> str:
-    value = _clean(candidate).split(",", 1)[0].strip().strip('"')
-    if not value:
-        return ""
-    if value.startswith("[") and "]" in value:
-        value = value[1:value.index("]")]
-    elif value.count(":") == 1 and "." in value:
-        value = value.split(":", 1)[0]
-    try:
-        return str(ipaddress.ip_address(value))
-    except ValueError:
-        return ""
-
-
 def _client_ip_details(request: Request) -> tuple[str, str]:
-    configured_header = os.getenv(
-        "TRACEABILITY_CLIENT_IP_HEADER", "do-connecting-ip"
-    ).strip().lower()
-    candidates: List[tuple[str, Any]] = []
-    if _trusted_proxy_request(request):
-        candidates.append(("trusted-proxy", request.headers.get("x-visitor-ip")))
-    if configured_header:
-        candidates.append((configured_header, request.headers.get(configured_header)))
-    if configured_header != "do-connecting-ip":
-        candidates.append(("do-connecting-ip", request.headers.get("do-connecting-ip")))
-    candidates.extend(
-        [
-            ("x-real-ip", request.headers.get("x-real-ip")),
-            ("socket", request.client.host if request.client else None),
-        ]
+    return visitor_ip(
+        request.headers,
+        _trusted_proxy_request(request),
+        os.getenv("TRACEABILITY_CLIENT_IP_HEADER", "do-connecting-ip").strip().lower(),
+        request.client.host if request.client else None,
     )
-    for source, candidate in candidates:
-        value = _normalize_ip(candidate)
-        if not value:
-            continue
-        return value, source
-    return "unknown", "unavailable"
 
 
 def _client_ip(request: Request) -> str:
@@ -187,7 +159,7 @@ def _masked_ip(ip: str) -> str:
     return f"{parts[0]}:{parts[1]}:{parts[2]}::/48"
 
 
-def _device_details(request: Request) -> Dict[str, str]:
+def _device_details(request: Request, metadata: Optional[Dict[str, Any]] = None) -> Dict[str, str]:
     trusted_proxy = _trusted_proxy_request(request)
     forwarded_user_agent = _clean(request.headers.get("x-visitor-user-agent"))
     user_agent = (
@@ -195,7 +167,6 @@ def _device_details(request: Request) -> Dict[str, str]:
         if trusted_proxy and forwarded_user_agent
         else _clean(request.headers.get("user-agent"))
     )
-    ua = user_agent.casefold()
     forwarded_mobile = _clean(request.headers.get("x-visitor-mobile"))
     mobile_hint = (
         forwarded_mobile
@@ -208,63 +179,19 @@ def _device_details(request: Request) -> Dict[str, str]:
         if trusted_proxy and forwarded_platform
         else _clean(request.headers.get("sec-ch-ua-platform"))
     ).strip('"')
-    if "ipad" in ua or "tablet" in ua or ("android" in ua and "mobile" not in ua):
-        device_type = "tablet"
-    elif mobile_hint == "?1" or any(value in ua for value in ("mobile", "iphone", "android")):
-        device_type = "mobile"
-    else:
-        device_type = "desktop"
-
-    if "edg/" in ua:
-        browser = "Microsoft Edge"
-    elif "opr/" in ua or "opera" in ua:
-        browser = "Opera"
-    elif "firefox/" in ua or "fxios/" in ua:
-        browser = "Firefox"
-    elif "chrome/" in ua or "crios/" in ua:
-        browser = "Google Chrome"
-    elif "safari/" in ua:
-        browser = "Safari"
-    else:
-        browser = "Unknown"
-
-    if platform_hint:
-        operating_system = platform_hint
-    elif "windows" in ua:
-        operating_system = "Windows"
-    elif "android" in ua:
-        operating_system = "Android"
-    elif "iphone" in ua or "ipad" in ua or "ios" in ua:
-        operating_system = "iOS"
-    elif "mac os" in ua or "macintosh" in ua:
-        operating_system = "macOS"
-    elif "linux" in ua:
-        operating_system = "Linux"
-    else:
-        operating_system = "Unknown"
-    return {
-        "device_type": device_type,
-        "browser": browser,
-        "operating_system": operating_system,
-        "user_agent": user_agent[:1000],
-    }
+    return device_details(user_agent, mobile_hint, platform_hint, metadata)
 
 
 def _geo_details(ip: str, request: Request) -> Dict[str, Any]:
-    details: Dict[str, Any] = {
-        "country": _clean(request.headers.get("cf-ipcountry")),
-        "region": _clean(request.headers.get("cf-region")),
-        "city": _clean(request.headers.get("cf-ipcity")),
-        "latitude": 0.0,
-        "longitude": 0.0,
-        "timezone": _clean(request.headers.get("cf-timezone")),
-        "isp": "",
-    }
+    details = visitor_location(request.headers, _trusted_proxy_request(request))
     try:
         address = ipaddress.ip_address(ip)
         if not address.is_global:
             return details
     except ValueError:
+        return details
+
+    if _trusted_proxy_request(request) and all(details[key] for key in ("country", "region", "city")):
         return details
 
     now = time.monotonic()
@@ -307,14 +234,14 @@ def _geo_details(ip: str, request: Request) -> Dict[str, Any]:
         return details
 
 
-def _visitor_context(request: Request) -> Dict[str, Any]:
+def _visitor_context(request: Request, metadata: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     ip, ip_source = _client_ip_details(request)
     return {
         "ip_hash": _hash_ip(ip),
         "ip_masked": _masked_ip(ip),
         "ip_source": ip_source,
         **_geo_details(ip, request),
-        **_device_details(request),
+        **_device_details(request, metadata),
     }
 
 
@@ -326,7 +253,7 @@ def _record_event(
     trace: Optional[Dict[str, Any]] = None,
     visitor: Optional[Dict[str, Any]] = None,
 ) -> str:
-    visitor = visitor or _visitor_context(request)
+    visitor = visitor or _visitor_context(request, metadata)
     event_id = ID.unique()
     db.create_document(
         database_id=db_id,
@@ -489,18 +416,23 @@ class PromotionPayload(BaseModel):
     actor_role: str = "admin"
 
 
-class LookupPayload(BaseModel):
+class VisitorDevicePayload(BaseModel):
+    device_type: str = Field(default="unknown", max_length=20)
+    user_agent: str = Field(default="", max_length=1000)
+    browser: str = Field(default="", max_length=120)
+    operating_system: str = Field(default="", max_length=120)
+
+
+class LookupPayload(VisitorDevicePayload):
     batch_number: str
     session_id: str = ""
     country: str = ""
     region: str = ""
     city: str = ""
-    device_type: str = "unknown"
     referrer: str = ""
-    user_agent: str = ""
 
 
-class EventPayload(BaseModel):
+class EventPayload(VisitorDevicePayload):
     event_type: str
     public_token: str = ""
     batch_number: str = ""
@@ -509,12 +441,10 @@ class EventPayload(BaseModel):
     country: str = ""
     region: str = ""
     city: str = ""
-    device_type: str = "unknown"
     referrer: str = ""
-    user_agent: str = ""
 
 
-class FeedbackPayload(BaseModel):
+class FeedbackPayload(VisitorDevicePayload):
     feedback_type: str = "feedback"
     category: str = "other"
     rating: int = Field(default=0, ge=0, le=5)
@@ -743,7 +673,7 @@ def submit_public_feedback(request: Request, payload: FeedbackPayload):
         raise HTTPException(status_code=422, detail="Enter a valid contact email")
 
     trace = _find_trace(batch_number=payload.batch_number, token=payload.public_token)
-    visitor = _visitor_context(request)
+    visitor = _visitor_context(request, payload.model_dump())
     feedback_id = ID.unique()
     now = _now()
     data = {
@@ -806,7 +736,7 @@ def _available_public_config() -> Dict[str, Any]:
 
 
 def _lookup_response(request: Request, trace: Dict[str, Any], metadata: Dict[str, Any], config: Dict[str, Any]) -> Dict[str, Any]:
-    visitor = _visitor_context(request)
+    visitor = _visitor_context(request, metadata)
     if config.get("analytics_enabled", True):
         _record_event(request, event_type="lookup_success", metadata=metadata, trace=trace, visitor=visitor)
         db.update_document(database_id=db_id, collection_id=db_collection_id31, document_id=trace["$id"], data={"scan_count": int(trace.get("scan_count") or 0) + 1, "updated_at": _now()})
@@ -827,10 +757,10 @@ def public_lookup(request: Request, payload: LookupPayload):
 
 
 @traceability_router.get("/public/traceability/{public_token}", tags=["Public Traceability"])
-def public_lookup_by_token(request: Request, public_token: str, session_id: str = "", country: str = "", region: str = "", city: str = "", device_type: str = "unknown", referrer: str = ""):
+def public_lookup_by_token(request: Request, public_token: str, session_id: str = "", country: str = "", region: str = "", city: str = "", device_type: str = "unknown", referrer: str = "", user_agent: str = "", browser: str = "", operating_system: str = ""):
     config = _available_public_config()
     trace = _find_trace(token=public_token)
-    metadata = {"session_id": session_id, "country": country, "region": region, "city": city, "device_type": device_type, "referrer": referrer}
+    metadata = {"session_id": session_id, "country": country, "region": region, "city": city, "device_type": device_type, "referrer": referrer, "user_agent": user_agent, "browser": browser, "operating_system": operating_system}
     if trace is None:
         raise HTTPException(status_code=404, detail={"code": "TRACE_NOT_FOUND", "message": "This product link is invalid or is not published."})
     return _lookup_response(request, trace, metadata, config)

@@ -1,3 +1,4 @@
+from document_paging import list_all_documents
 import secrets
 
 from fastapi import APIRouter, Body, Form, HTTPException, status
@@ -93,7 +94,7 @@ def register_farm(
 @collection2_router.get("/farms")
 def get_all_farm_infos():
     try:
-        result = db.list_documents(
+        result = list_all_documents(db,
             database_id=db_id,
             collection_id=db_collection_id2
         )

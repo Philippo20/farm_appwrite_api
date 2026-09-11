@@ -1,3 +1,4 @@
+from document_paging import list_all_documents
 from fastapi import APIRouter, Form, File, UploadFile, HTTPException, status
 from typing import Annotated, Optional
 from enum import Enum
@@ -194,7 +195,7 @@ async def register_batch(
 @collection5_router.get("/batches")
 def get_all_batches_infos():
     try:
-        result = db.list_documents(
+        result = list_all_documents(db,
             database_id=db_id,
             collection_id=db_collection_id5
         )

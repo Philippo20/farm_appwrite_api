@@ -1,3 +1,4 @@
+from document_paging import list_all_documents
 from fastapi import APIRouter, Form, HTTPException, status
 from typing import Annotated
 import json
@@ -921,7 +922,7 @@ def register_fulfillment(
 @collection7_router.get("/fulfillments")
 def get_all_fulfillment_infos():
     try:
-        result = db.list_documents(
+        result = list_all_documents(db,
             database_id=db_id,
             collection_id=db_collection_id7
         )

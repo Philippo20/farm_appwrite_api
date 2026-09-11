@@ -96,3 +96,21 @@ Never expose `TRACEABILITY_PROXY_SECRET` in browser JavaScript. The API ignores 
 ## Related repository
 
 The Flutter client is maintained at [farm_flutter_ui](https://github.com/Philippo20/farm_flutter_ui).
+
+### Public website visitor IP and location forwarding
+
+On server-proxied public traceability calls, send `X-Visitor-IP` from the public
+website host's authoritative incoming visitor-IP header and authenticate using
+`X-Traceability-Proxy-Key`. Keep the shared `TRACEABILITY_PROXY_SECRET` server-only.
+Optionally forward trusted platform location fields as `X-Visitor-Country`,
+`X-Visitor-Region`, `X-Visitor-City`, and `X-Visitor-Timezone`.
+Do not trust client-supplied versions of these headers: the website server must
+overwrite them using its hosting platform's request context.
+
+The API prioritizes this visitor IP over the API host's connecting IP. When a
+trusted proxy omits a valid visitor IP, the API records it as unavailable rather
+than falling back to the hosting IP. The API never uses its own edge location
+headers for a trusted proxy request. Complete forwarded location is used as-is;
+otherwise the visitor IP is used for geolocation. Never call an IP lookup without
+an explicit visitor IP from a website server, because that returns the server's
+own location. These changes affect new events, not historical records.
