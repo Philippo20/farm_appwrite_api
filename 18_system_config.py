@@ -267,3 +267,7 @@ result = db.create_string_attribute(
     required=False,
     default="system"
 )
+
+# Separate server-only email document; password inside JSON is encrypted.
+db.create_string_attribute(database_id=db_id, collection_id=db_collection_id18,
+    key="email_settings_json", size=12000, required=False)

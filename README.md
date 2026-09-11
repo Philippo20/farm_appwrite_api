@@ -114,3 +114,33 @@ headers for a trusted proxy request. Complete forwarded location is used as-is;
 otherwise the visitor IP is used for geolocation. Never call an IP lookup without
 an explicit visitor IP from a website server, because that returns the server's
 own location. These changes affect new events, not historical records.
+
+## SMTP email settings
+
+Super Admin → System Config → Email Settings manages platform SMTP delivery.
+Deploy the updated requirements, run `python migrate_email_settings.py`, and wait
+for Appwrite to mark `email_settings_json` available. The migration creates only
+that optional attribute on collection 18. It has not been run automatically.
+
+Generate a Fernet key with
+`python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`
+and set it as server-only `EMAIL_SETTINGS_ENCRYPTION_KEY`. Keep this key stable
+across deployments and backed up separately: saved SMTP passwords cannot be
+recovered without it. No SMTP password is returned by the API or written to audit
+records. Email configuration is stored in the separate `email` document, not the
+publicly consumed `global` configuration. Routes require an active Super Admin.
+
+The card saves independently from the other configuration cards. Blank password
+preserves the current credential. STARTTLS and SSL/TLS are supported; plaintext
+SMTP is not. Send test email explicitly sends one email using saved settings;
+it bypasses notification preferences so a disabled service can still be tested.
+An SMTP acceptance response is not a guarantee of inbox delivery.
+
+Existing `create_notification` callers now queue an email companion after saving
+the in-app notification. The global email-notification switch, SMTP enabled
+switch, category preference, and active recipient are all checked. Batch/farm/
+sensor/alert types use Farm alerts; account/security types use Account alerts;
+other types use Workflow alerts. Background delivery is best-effort, with two
+workers and a bounded queue; process termination or delivery failures can lose
+an email, while in-app notifications remain persisted. No automatic retry is
+attempted. Verification and password reset still use Appwrite's own mail setup.

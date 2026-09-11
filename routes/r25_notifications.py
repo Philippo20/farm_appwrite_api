@@ -5,6 +5,7 @@ from appwrite.id import ID
 from fastapi import APIRouter, HTTPException, Query as FastAPIQuery
 
 from db import db
+from notification_email import queue_notification_email
 from main import db_collection_id25, db_id
 
 collection25_router = APIRouter(tags=["Notifications"])
@@ -35,12 +36,15 @@ def create_notification(
     }
     if related_task_id:
         data["related_task_id"] = related_task_id
-    return db.create_document(
+    saved = db.create_document(
         database_id=db_id,
         collection_id=db_collection_id25,
         document_id=ID.unique(),
         data=data,
     )
+
+    queue_notification_email(recipient_id, title, message, notification_type)
+    return saved
 
 
 @collection25_router.get("/notifications")

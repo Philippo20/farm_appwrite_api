@@ -18,6 +18,7 @@ from routes.r15_grow_stages import collection15_router
 from routes.r16_crops import collection16_router
 from routes.r17_pricing import collection17_router
 from routes.r18_system_config import collection18_router
+from routes.email_settings import email_settings_router
 from routes.r20_inventory_movements import collection20_router
 from routes.r22_fund_requests import collection22_router
 from routes.r23_farm_tasks import collection23_router
@@ -87,6 +88,7 @@ app.include_router(collection15_router)
 app.include_router(collection16_router)
 app.include_router(collection17_router)
 app.include_router(collection18_router)
+app.include_router(email_settings_router)
 app.include_router(storage_router)
 app.include_router(auth_router)
 app.include_router(messaging_router)
