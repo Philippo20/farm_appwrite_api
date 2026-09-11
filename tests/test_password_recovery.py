@@ -4,6 +4,7 @@ import sys
 import types
 import unittest
 from recovery_diagnostics import log_recovery_failure
+from recovery_url import password_reset_url
 from pathlib import Path
 from unittest.mock import Mock, patch
 
@@ -23,7 +24,7 @@ class RecoveryTests(unittest.TestCase):
             node.args.defaults = []
             for arg in node.args.args: arg.annotation = None
         self.account = Mock()
-        self.scope = {'_recovery_account': lambda: self.account, 'HTTPException': HTTPException, 'AppwriteException': AppwriteException, 'os': os, 'log_recovery_failure': log_recovery_failure}
+        self.scope = {'_recovery_account': lambda: self.account, 'HTTPException': HTTPException, 'AppwriteException': AppwriteException, 'os': os, 'log_recovery_failure': log_recovery_failure, 'password_reset_url': password_reset_url}
         config = types.ModuleType('routes.r18_system_config')
         config._get_or_create_config = lambda: {'password_min_length': 10}
         self.modules = patch.dict(sys.modules, {'routes.r18_system_config': config})
@@ -35,6 +36,20 @@ class RecoveryTests(unittest.TestCase):
         expected = self.scope['create_password_recovery']('user@example.com')
         self.account.create_recovery.side_effect = AppwriteException(404, 'user_not_found')
         self.assertEqual(self.scope['create_password_recovery']('unknown@example.com'), expected)
+
+    def test_legacy_fragment_is_converted_before_appwrite_request(self):
+        with patch.dict(os.environ, {'PASSWORD_RESET_URL': 'https://apps.farmestates.farm/#/reset-password'}):
+            self.scope['create_password_recovery']('user@example.com')
+        self.assertEqual(self.account.create_recovery.call_args.kwargs['url'],
+                         'https://apps.farmestates.farm/?recovery=1')
+
+    def test_custom_reset_path_is_preserved(self):
+        with patch.dict(os.environ, {'PASSWORD_RESET_URL': 'https://example.com/reset-password'}):
+            self.assertEqual(password_reset_url(), 'https://example.com/reset-password')
+
+    def test_flutter_base_path_and_query_are_preserved(self):
+        with patch.dict(os.environ, {'PASSWORD_RESET_URL': 'https://example.com/app/?lang=en#/reset-password'}):
+            self.assertEqual(password_reset_url(), 'https://example.com/app/?lang=en&recovery=1')
 
     def test_mail_service_failure_not_reported_as_success(self):
         self.account.create_recovery.side_effect = AppwriteException(500)

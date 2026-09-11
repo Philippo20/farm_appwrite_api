@@ -19,6 +19,7 @@ import logging
 import uuid
 import json
 from recovery_diagnostics import log_recovery_failure
+from recovery_url import password_reset_url
 
 load_dotenv()
 
@@ -285,7 +286,7 @@ def create_password_recovery(email: Annotated[EmailStr, Form()]):
     try:
         _recovery_account().create_recovery(
             email=str(email),
-            url=os.getenv("PASSWORD_RESET_URL", "https://apps.farmestates.farm/#/reset-password"),
+            url=password_reset_url(),
         )
     except AppwriteException as error:
         if error.code == 404 and getattr(error, 'type', '') == 'user_not_found':

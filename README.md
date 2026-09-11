@@ -149,13 +149,18 @@ attempted. Verification and password reset still use Appwrite's own mail setup.
 
 The login Forgot Password link opens `/forgot-password`. Appwrite sends recovery
 emails via `POST /account/recovery`. Set `PASSWORD_RESET_URL` to the deployed web
-app reset page (default `https://apps.farmestates.farm/#/reset-password`) and
+app reset page (default `https://apps.farmestates.farm/?recovery=1`) and
 allow that host in the Appwrite project platforms. The Flutter reset route reads
 Appwrite's `userId` and `secret` query parameters, including parameters before
 the URL fragment. Completion uses `POST /account/recovery/confirm` with a JSON
 body, keeping new passwords out of API query strings. Request responses do not
 reveal whether an email is registered. SMTP settings in System Config do not
 replace Appwrite's authentication mail transport.
+
+Legacy `#/reset-password` redirect settings are converted to `?recovery=1`
+before calling Appwrite to avoid fragment URL validation errors. Deploy the API
+and Flutter update together. Flutter recognizes the recovery query and preserves
+support for older reset links. The redirect hostname must still be registered.
 # Alert email templates
 
 SMTP alerts and the System Config test email use a shared responsive HTML template
