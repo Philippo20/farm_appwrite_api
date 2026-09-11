@@ -1,4 +1,4 @@
-from sensor_capabilities import with_sensor_capabilities
+from sensor_capabilities import with_sensor_capabilities, maintenance_values, sensor_maintenance_required
 from fastapi import Query as ApiQuery
 import os
 import re
@@ -62,6 +62,10 @@ def _sensor_document_payload(
     warning_min: Optional[float] = None,
     warning_max: Optional[float] = None,
 ) -> dict:
+    try:
+        maintenance = maintenance_values(sensortype, maintenance_frequency, last_maintenance_date)
+    except ValueError as error:
+        raise HTTPException(422, str(error)) from error
     data = {
         "farmID": farmID,
         "farm_name": farm_name,
@@ -73,9 +77,9 @@ def _sensor_document_payload(
         "status": status_value,
         "unit": unit,
         "alerts_enabled": alerts_enabled,
-        "maintenance_frequency": maintenance_frequency,
+        "maintenance_frequency": maintenance["maintenance_frequency"],
         "timestamp": timestamp,
-        "last_maintenance_date": last_maintenance_date,
+        "last_maintenance_date": maintenance["last_maintenance_date"],
     }
     if range_min is not None:
         data["range_min"] = range_min
@@ -239,9 +243,9 @@ def register_sensors_info(
         status: Annotated[Status, Form()],
         unit: Annotated[str, Form()],
         alerts_enabled: Annotated[bool, Form()],
-        maintenance_frequency: Annotated[str, Form()],
         timestamp: Annotated[datetime, Form(...)],
-        last_maintenance_date: Annotated[date, Form(...)],
+        maintenance_frequency: Annotated[Optional[str], Form()] = None,
+        last_maintenance_date: Annotated[Optional[date], Form()] = None,
         range_min: Annotated[Optional[float], Form()] = None,
         range_max: Annotated[Optional[float], Form()] = None,
         warning_min: Annotated[Optional[float], Form()] = None,
@@ -282,7 +286,7 @@ def register_sensors_info(
         alerts_enabled=alerts_enabled,
         maintenance_frequency=maintenance_frequency,
         timestamp=timestamp,
-        last_maintenance_date=last_maintenance_date.isoformat(),
+        last_maintenance_date=last_maintenance_date.isoformat() if last_maintenance_date else None,
         range_min=range_min,
         range_max=range_max,
         warning_min=warning_min,
@@ -459,6 +463,8 @@ def ingest_sensor_reading(
                 else:
                     update_data[key] = payload[key]
 
+        if not sensor_maintenance_required({**sensor, **update_data}):
+            update_data.update(maintenance_values(update_data.get("sensortype", sensor.get("sensortype")), None, None))
         updated = db.update_document(
             database_id=db_id,
             collection_id=db_collection_id11,
@@ -561,9 +567,9 @@ def update_sensor(
     status: Annotated[Status, Form()],
     unit: Annotated[str, Form()],
     alerts_enabled: Annotated[bool, Form()],
-    maintenance_frequency: Annotated[str, Form()],
     timestamp: Annotated[datetime, Form(...)],
-    last_maintenance_date: Annotated[date, Form(...)],
+    maintenance_frequency: Annotated[Optional[str], Form()] = None,
+    last_maintenance_date: Annotated[Optional[date], Form()] = None,
     range_min: Annotated[Optional[float], Form()] = None,
     range_max: Annotated[Optional[float], Form()] = None,
     warning_min: Annotated[Optional[float], Form()] = None,
@@ -597,7 +603,7 @@ def update_sensor(
             alerts_enabled=alerts_enabled,
             maintenance_frequency=maintenance_frequency,
             timestamp=timestamp,
-            last_maintenance_date=last_maintenance_date.isoformat(),
+            last_maintenance_date=last_maintenance_date.isoformat() if last_maintenance_date else None,
             range_min=range_min,
             range_max=range_max,
             warning_min=warning_min,

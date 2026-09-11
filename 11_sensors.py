@@ -130,5 +130,5 @@ result = db.create_datetime_attribute(
     database_id= db_id,
     collection_id= db_collection_id11,
     key="last_maintenance_date",#Last date sensor was serviced.
-    required= True
+    required= False
 )
