@@ -7,7 +7,7 @@ def sensor_calibration_required(sensor: dict):
     if isinstance(override, bool):
         return override
     kind = re.sub(r"[^a-z0-9]", "", str(sensor.get("sensortype") or sensor.get("sensor_type") or sensor.get("type") or "").lower())
-    if kind in {"temperature", "temp"}:
+    if kind in {"temperature", "temp", "lightswitch"}:
         return False
     if kind in {"ph", "phlevel", "ec", "eclevel", "conductivity", "electricalconductivity", "tds"}:
         return True
@@ -23,7 +23,7 @@ def sensor_maintenance_required(sensor: dict) -> bool:
     kind = re.sub(r"[^a-z0-9]", "", raw.lower().replace("₂", "2"))
     return kind not in {"temperature", "temp", "humidity", "relativehumidity", "vpd",
                         "vaporpressuredeficit", "vapourpressuredeficit", "light", "lightintensity",
-                        "co2", "carbondioxide"}
+                        "co2", "carbondioxide", "lightswitch"}
 
 
 def maintenance_values(kind, frequency, last_date):

@@ -28,6 +28,7 @@ class SensorType(str, Enum):
     HUMIDITY = "humidity"
     CO2 = "Carbon Dioxide"
     LIGHT = "light"
+    LIGHT_SWITCH = "light_switch"
     PH_LEVEL = "pH Level"
     EC_LEVEL = "EC Level"
     WATER_LEVEL = "Water level"

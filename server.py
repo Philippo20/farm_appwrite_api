@@ -1,3 +1,4 @@
+from routes.light_switches import router as light_switch_router
 from fastapi import FastAPI, Header, HTTPException
 import os
 from routes.r1_users import collection1_router
@@ -81,6 +82,7 @@ app.include_router(collection8_router)
 app.include_router(collection9_router)
 app.include_router(collection10_router)
 app.include_router(collection11_router)
+app.include_router(light_switch_router)
 app.include_router(collection12_router)
 app.include_router(collection13_router)
 app.include_router(collection14_router)
