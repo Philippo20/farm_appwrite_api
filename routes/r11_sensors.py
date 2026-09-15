@@ -24,6 +24,7 @@ CONFIG_DOCUMENT_ID = "global"
 
 class SensorType(str, Enum):
     TEMPERATURE = "temperature"
+    WATER_TEMPERATURE = "water_temperature"
     HUMIDITY = "humidity"
     CO2 = "Carbon Dioxide"
     LIGHT = "light"
@@ -341,9 +342,10 @@ def get_sensor_readings():
         result = db.list_documents(
             database_id=db_id,
             collection_id=db_collection_id21,
-            queries=[Query.order_desc("timestamp"), Query.limit(500)],
+            queries=[Query.order_desc("$createdAt"), Query.limit(500)],
         )
-        return {"count": result["total"], "users": result["documents"]}
+        return {"count": result["total"], "users": result["documents"],
+                "server_time": datetime.now(timezone.utc).isoformat()}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
