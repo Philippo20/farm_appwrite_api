@@ -4,11 +4,13 @@ from typing import Annotated, Optional
 
 from appwrite.id import ID
 from appwrite.query import Query
-from fastapi import APIRouter, Form, HTTPException, status as http_status
+from fastapi import APIRouter, Depends, Form, HTTPException, Query as RequestQuery, status as http_status
+from auth import get_current_user
+from batch_record_access import can_review_records
 
 from audit_utils import write_audit
 from db import db
-from main import db_collection_id5, db_collection_id7, db_collection_id24, db_id
+from main import db_collection_id1, db_collection_id2, db_collection_id5, db_collection_id7, db_collection_id24, db_id
 from routes.r25_notifications import create_notification
 
 collection24_router = APIRouter(tags=["Farm Records"])
@@ -73,6 +75,27 @@ def _ensure_batch_open(batch):
             "This batch is complete after delivery to fulfillment. "
             "No further caretaker records can be taken."
         ))
+
+
+@collection24_router.get("/batches/{batch_id}/caretaker-records")
+def batch_caretaker_records(batch_id: str, limit: int = RequestQuery(100, ge=1, le=100),
+                            offset: int = RequestQuery(0, ge=0), actor: dict = Depends(get_current_user)):
+    profiles = db.list_documents(db_id, db_collection_id1,
+        queries=[Query.equal('email', [actor.get('email', '')]), Query.limit(2)]).get('documents', [])
+    if len(profiles) != 1:
+        raise HTTPException(403, 'User profile is unavailable')
+    try:
+        batch = db.get_document(db_id, db_collection_id5, batch_id)
+        farm = db.get_document(db_id, db_collection_id2, batch['farmID'])
+    except Exception:
+        raise HTTPException(404, 'Batch or farm not found')
+    if not can_review_records(profiles[0], farm):
+        raise HTTPException(403, 'You cannot review records for this farm')
+    result = db.list_documents(db_id, db_collection_id24, queries=[
+        Query.equal('batch_id', [batch_id]), Query.equal('farm_id', [batch['farmID']]),
+        Query.order_desc('record_date'), Query.order_desc('$id'),
+        Query.limit(limit), Query.offset(offset)])
+    return {'documents': result.get('documents', []), 'total': result.get('total', 0)}
 
 
 @collection24_router.get("/farm-records")
