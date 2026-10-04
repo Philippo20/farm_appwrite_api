@@ -1,3 +1,4 @@
+from water_record_values import water_record_values
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Annotated, Optional
@@ -151,6 +152,10 @@ def create_farm_record(
     activities_performed: Annotated[str, Form()] = "",
     issue_description: Annotated[str, Form()] = "",
     notes: Annotated[str, Form()] = "",
+    water_temperature: Annotated[str, Form()] = "",
+    water_bought_litres: Annotated[str, Form()] = "",
+    water_bought_amount: Annotated[str, Form()] = "",
+    ac_water_litres: Annotated[str, Form()] = "",
     planted_count: Annotated[str, Form()] = "",
     transplanted_count: Annotated[str, Form()] = "",
     harvested_count: Annotated[str, Form()] = "",
@@ -160,6 +165,11 @@ def create_farm_record(
         raise HTTPException(status_code=400, detail="Farm is required")
     if has_issues and not issue_description.strip():
         raise HTTPException(status_code=400, detail="Issue description is required")
+
+    try:
+        water_values = water_record_values(record_type, water_bought_litres, water_bought_amount, ac_water_litres, water_temperature)
+    except ValueError as error:
+        raise HTTPException(422, str(error)) from error
 
     batch = None
     batch_update = {}
@@ -256,6 +266,8 @@ def create_farm_record(
         "created_at": now,
         "updated_at": now,
     }
+
+    data.update(water_values)
 
     optional_numbers = {
         "temperature": _float_or_none(temperature),
