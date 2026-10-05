@@ -3,6 +3,9 @@ import re
 
 
 def sensor_calibration_required(sensor: dict):
+    if sensor.get('maintenance_plan') is not None:
+        from device_maintenance import plans_for
+        return any(plan['type'] == 'calibration' for plan in plans_for(sensor))
     override = sensor.get("calibration_required")
     if isinstance(override, bool):
         return override
@@ -19,6 +22,9 @@ def with_sensor_capabilities(sensor: dict) -> dict:
 
 
 def sensor_maintenance_required(sensor: dict) -> bool:
+    if sensor.get('maintenance_plan') is not None:
+        from device_maintenance import plans_for
+        return bool(plans_for(sensor))
     raw = str(sensor.get("sensortype") or sensor.get("sensor_type") or sensor.get("type") or "")
     kind = re.sub(r"[^a-z0-9]", "", raw.lower().replace("₂", "2"))
     return kind not in {"temperature", "temp", "humidity", "relativehumidity", "vpd",

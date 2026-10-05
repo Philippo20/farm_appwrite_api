@@ -1,3 +1,4 @@
+import json
 from sensor_capabilities import with_sensor_capabilities, maintenance_values, sensor_maintenance_required
 from fastapi import Query as ApiQuery
 import os
@@ -23,6 +24,7 @@ collection11_router = APIRouter(tags=["Sensors"])
 CONFIG_DOCUMENT_ID = "global"
 
 class SensorType(str, Enum):
+    AIR_CONDITIONER = "air_conditioner"
     TEMPERATURE = "temperature"
     WATER_TEMPERATURE = "water_temperature"
     HUMIDITY = "humidity"
@@ -63,9 +65,12 @@ def _sensor_document_payload(
     range_max: Optional[float] = None,
     warning_min: Optional[float] = None,
     warning_max: Optional[float] = None,
+    maintenance_plan: Optional[list] = None,
 ) -> dict:
     try:
-        maintenance = maintenance_values(sensortype, maintenance_frequency, last_maintenance_date)
+        maintenance = ({'maintenance_frequency': 'Per task' if maintenance_plan else 'Not required',
+                        'last_maintenance_date': last_maintenance_date} if maintenance_plan is not None
+                       else maintenance_values(sensortype, maintenance_frequency, last_maintenance_date))
     except ValueError as error:
         raise HTTPException(422, str(error)) from error
     data = {
@@ -83,6 +88,8 @@ def _sensor_document_payload(
         "timestamp": timestamp,
         "last_maintenance_date": maintenance["last_maintenance_date"],
     }
+    if maintenance_plan is not None:
+        data['maintenance_plan'] = json.dumps(maintenance_plan)
     if range_min is not None:
         data["range_min"] = range_min
     if range_max is not None:
