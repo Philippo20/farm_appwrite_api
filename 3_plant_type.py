@@ -60,7 +60,7 @@ result = db.create_enum_attribute(
     database_id=db_id,
     collection_id=db_collection_id3,
     key="maturity_unit",
-    elements=["weeks", "months"],
+    elements=["days", "weeks", "months"],
     required=False,
     default="months"
 )

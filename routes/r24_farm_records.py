@@ -1,3 +1,4 @@
+from production_planning import read_plan
 from water_record_values import water_record_values
 from datetime import datetime, timezone
 from enum import Enum
@@ -207,6 +208,9 @@ def create_farm_record(
             ) from error
 
         _ensure_batch_open(batch)
+        plan = read_plan(batch.get('production_plan'))
+        if growth_stage.strip() and plan and growth_stage.strip() not in {s['name'] for s in plan['stages']}:
+            raise HTTPException(status_code=422, detail="Choose a growth stage from this batch's saved plan.")
 
         if str(batch.get("farmID") or "").strip() != farm_id.strip():
             raise HTTPException(

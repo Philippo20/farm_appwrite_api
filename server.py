@@ -36,8 +36,10 @@ from auth import auth_router
 from routes.messaging import messaging_router
 from backups import backups_router
 from fastapi.middleware.cors import CORSMiddleware
+from production_reminders import production_lifespan
 
 app = FastAPI(
+    lifespan=production_lifespan,
     title="Farm Estates Ltd API",
     description="API built using appwrite's db",
     docs_url="/",

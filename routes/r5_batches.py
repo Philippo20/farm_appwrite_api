@@ -1,3 +1,5 @@
+import json
+from production_planning import validate_plan, schedule, batch_view
 from document_paging import list_all_documents
 from fastapi import APIRouter, Form, File, UploadFile, HTTPException, status
 from typing import Annotated, Optional
@@ -124,6 +126,12 @@ async def register_batch(
         farm_name = str(farm.get("name") or farm_name).strip()
         plant_name = str(plant_type.get("name") or plant_name).strip()
 
+        plan = validate_plan(plant_type.get("production_plan"))
+        if plan:
+            end_date = date.fromisoformat(schedule(plan, start_date)["expected_harvest"])
+        if end_date < start_date:
+            raise HTTPException(status_code=422, detail="End date cannot precede start date.")
+
         file_id = ""
         view_url = ""
         download_url = ""
@@ -146,6 +154,7 @@ async def register_batch(
             collection_id=db_collection_id5,
             document_id=document_id,
             data={
+                **({"production_plan": json.dumps(plan)} if plan else {}),
                 "batch_id": document_id,
                 "batch_no": batch_no,
                 "farmID": farmID,
@@ -201,7 +210,7 @@ def get_all_batches_infos():
         )
 
         # Extract the list of users
-        batches_users = result["documents"]
+        batches_users = [batch_view(batch) for batch in result["documents"]]
 
         return {
             "count": len(batches_users),
@@ -219,7 +228,7 @@ def get_batch_info(batch_id:str):
             collection_id= db_collection_id5,
             document_id= batch_id
         )
-        return user
+        return batch_view(user)
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -254,6 +263,9 @@ async def update_batch(
         if start_date is not None:
             update_data["start_date"] = start_date.isoformat()
         if end_date is not None:
+            update_data["end_date"] = end_date.isoformat()
+        if previous.get("production_plan") and (start_date is not None or end_date is not None):
+            end_date = date.fromisoformat(schedule(previous["production_plan"], start_date or previous["start_date"])["expected_harvest"])
             update_data["end_date"] = end_date.isoformat()
 
         numeric_fields = {

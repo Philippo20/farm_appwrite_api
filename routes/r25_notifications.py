@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException, Query as FastAPIQuery
 from db import db
 from notification_email import queue_notification_email
 from main import db_collection_id25, db_id
+from document_paging import list_all_documents
 
 collection25_router = APIRouter(tags=["Notifications"])
 
@@ -50,7 +51,7 @@ def create_notification(
 @collection25_router.get("/notifications")
 def get_notifications(recipient_id: Annotated[str, FastAPIQuery()]):
     try:
-        result = db.list_documents(
+        result = list_all_documents(db,
             database_id=db_id,
             collection_id=db_collection_id25,
         )
@@ -68,7 +69,7 @@ def get_notifications(recipient_id: Annotated[str, FastAPIQuery()]):
 def mark_all_notifications_as_read(recipient_id: Annotated[str, FastAPIQuery()]):
     """Persist the read state for every notification owned by one recipient."""
     try:
-        result = db.list_documents(
+        result = list_all_documents(db,
             database_id=db_id,
             collection_id=db_collection_id25,
         )

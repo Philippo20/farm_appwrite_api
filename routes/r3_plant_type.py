@@ -6,6 +6,9 @@ from db import db
 from appwrite.id import ID
 from audit_utils import write_audit
 import math
+import json
+from production_planning import validate_plan
+from document_paging import list_all_documents
 
 
 collection3_router = APIRouter(tags=["Plant type"])
@@ -15,6 +18,7 @@ class Status(str, Enum):
     INACTIVE = "inactive"
 
 class MaturityUnit(str, Enum):
+    DAYS = "days"
     WEEKS = "weeks"
     MONTHS = "months"
 
@@ -24,6 +28,8 @@ def _maturity_fields(min_value: int, max_value: int, unit: MaturityUnit):
     if unit == MaturityUnit.MONTHS:
         min_weeks = max(1, math.ceil(min_value * 4.345))
         max_weeks = max(min_weeks, math.ceil(max_value * 4.345))
+    elif unit == MaturityUnit.DAYS:
+        min_weeks, max_weeks = math.ceil(min_value / 7), math.ceil(max_value / 7)
     else:
         min_weeks, max_weeks = min_value, max_value
     return {
@@ -37,13 +43,14 @@ def _maturity_fields(min_value: int, max_value: int, unit: MaturityUnit):
 @collection3_router.post("/plant_type/info")
 async def register_plant_type(
         name: Annotated[str, Form()],
-        image_url: Annotated[str, Form()],
         status: Annotated[Status, Form()],
+        image_url: Annotated[str, Form()] = "",
         months_to_maturity: Annotated[int | None, Form()] = None,
         maturity_min_value: Annotated[int | None, Form()] = None,
         maturity_max_value: Annotated[int | None, Form()] = None,
         maturity_unit: Annotated[MaturityUnit | None, Form()] = None,
         category: Annotated[str, Form()] = "Plant Types",
+        production_plan: Annotated[str | None, Form()] = None,
         ):
     try:
         plant_data = {
@@ -63,6 +70,8 @@ async def register_plant_type(
         max_value = maturity_max_value or months_to_maturity or min_value
         plant_data.update(_maturity_fields(
             min_value, max_value, maturity_unit or MaturityUnit.MONTHS))
+        if production_plan is not None:
+            plant_data.update(_production_fields(production_plan))
         plant_type_info_doc = db.create_document(
             database_id=db_id,
             collection_id=db_collection_id3,
@@ -79,13 +88,15 @@ async def register_plant_type(
             "message": "Plant-type details are successfully created",
             "plant_type_ID": plant_type_info_doc["$id"]
         }
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 @collection3_router.get("/plant_type")
 def get_all_plant_type_infos():
     try:
-        result = db.list_documents(
+        result = list_all_documents(db,
             database_id=db_id,
             collection_id=db_collection_id3
         )
@@ -98,6 +109,8 @@ def get_all_plant_type_infos():
             "users": plant_type_users
         }
 
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -150,6 +163,8 @@ async def create_plant_type_category(
             "message": "Plant type category created",
             "category_id": category_doc["$id"]
         }
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -197,13 +212,14 @@ def get_plant_type_info(plant_type_id:str):
 @collection3_router.put("/plant_type/{plant_type_id}")
 async def update_plant_type(plant_type_id:str,
     name: Annotated[str, Form()],
-    image_url: Annotated[str, Form()],
     status: Annotated[Status, Form()],
+    image_url: Annotated[str, Form()] = "",
     months_to_maturity: Annotated[int | None, Form()] = None,
     maturity_min_value: Annotated[int | None, Form()] = None,
     maturity_max_value: Annotated[int | None, Form()] = None,
     maturity_unit: Annotated[MaturityUnit | None, Form()] = None,
-    category: Annotated[str, Form()] = "Plant Types"
+    category: Annotated[str, Form()] = "Plant Types",
+    production_plan: Annotated[str | None, Form()] = None
     ):
     try:
         previous_doc = db.get_document(
@@ -222,6 +238,8 @@ async def update_plant_type(plant_type_id:str,
         max_value = maturity_max_value or months_to_maturity or min_value
         update_data.update(_maturity_fields(
             min_value, max_value, maturity_unit or MaturityUnit.MONTHS))
+        if production_plan is not None:
+            update_data.update(_production_fields(production_plan))
         updated_doc = db.update_document(
             database_id=db_id,
             collection_id=db_collection_id3,
@@ -241,6 +259,8 @@ async def update_plant_type(plant_type_id:str,
             "document_id": updated_doc["$id"],
         }
 
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     
@@ -263,5 +283,19 @@ def delete_plant_type(plant_type_id:str):
             previous_data=previous_doc
         )
         return {"message": f"Plant type with ID {plant_type_id} deleted successfully"}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+def _production_fields(value):
+    try:
+        plan = validate_plan(value)
+    except (ValueError, TypeError, AttributeError) as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    fields = {'production_plan': json.dumps(plan)}
+    if plan:
+        days = sum(stage['days'] for stage in plan['stages'])
+        fields.update(_maturity_fields(days, days, MaturityUnit.DAYS))
+    return fields
