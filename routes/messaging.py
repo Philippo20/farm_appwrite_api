@@ -41,6 +41,8 @@ def current_member(authorization: str = Header(default="")):
     member = next((item for item in members if item.get("status", "Active").lower() == "active"), None)
     if member is None:
         raise HTTPException(403, "Your account is not active.")
+    if member.get('must_change_password') is True:
+        raise HTTPException(403, 'Change your temporary password before continuing.')
     return member
 
 

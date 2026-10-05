@@ -1,3 +1,4 @@
+from temporary_passwords import make_challenge, read_challenge
 from fastapi import APIRouter, Form, Header, HTTPException, Depends, Request, Body
 from appwrite.services.account import Account
 from appwrite.services.users import Users
@@ -220,6 +221,11 @@ def login_user(
         if str(user_status).strip().lower() != "active":
             raise reject(403, "profile_not_active", "Login blocked: your account is not active.")
 
+        if profile.get('must_change_password') is True:
+            return {'must_change_password': True,
+                    'password_change_token': make_challenge(session['userId'], profile['$id'], session_secret),
+                    'message': 'Choose a new password before continuing.'}
+
         # Now create JWT using user session client (NOT server key)
         stage = "create_jwt"
         jwt_result = user_account.create_jwt()
@@ -228,7 +234,7 @@ def login_user(
             "message": "Login successful",
             "session_id": session["$id"],
             "jwt": jwt_result["jwt"],
-            "user": profile
+            "user": {k: v for k, v in profile.items() if k != "password"}
         }
 
     except HTTPException:
@@ -243,6 +249,39 @@ def login_user(
         raise reject(503, "upstream_service_error", "Sign-in service is temporarily unavailable. Please try again.", error.code) from error
     except Exception as error:
         raise reject(503, "internal_error", "Sign-in service is temporarily unavailable. Please try again.") from error
+
+@auth_router.post('/account/first-password')
+def change_first_password(payload: dict = Body(...)):
+    token, password, old_password = payload.get('token'), payload.get('password'), payload.get('temporary_password')
+    if not all(isinstance(v, str) and v for v in (token, password, old_password)):
+        raise HTTPException(422, 'Temporary password and a new password are required.')
+    from routes.r18_system_config import _get_or_create_config
+    minimum = max(8, int(_get_or_create_config().get('password_min_length') or 8))
+    if len(password) < minimum or len(password) > 256 or password == old_password:
+        raise HTTPException(422, f'Choose a different password with {minimum} to 256 characters.')
+    try:
+        challenge = read_challenge(token)
+    except ValueError as error:
+        raise HTTPException(401, str(error)) from error
+    profile = db.get_document(db_id, db_collection_id1, challenge['profile_id'])
+    if profile.get('must_change_password') is not True or profile.get('status') != 'Active':
+        raise HTTPException(409, 'This password-change request is no longer active. Sign in again.')
+    user_account = Account(get_session_client(challenge['session_secret']))
+    try:
+        identity = user_account.get()
+        if identity['$id'] != challenge['user_id']:
+            raise HTTPException(401, 'Invalid password-change session.')
+        user_account.update_password(password=password, old_password=old_password)
+    except AppwriteException:
+        raise HTTPException(400, 'Password change was not accepted. Check your temporary password and password requirements.')
+    db.update_document(db_id, db_collection_id1, challenge['profile_id'],
+                       {'must_change_password': False, 'password': ''})
+    try:
+        user_account.delete_sessions()
+    except AppwriteException:
+        pass
+    return {'message': 'Password changed. Sign in with your new password.'}
+
 
 # email verification
 @auth_router.post("/auth/verifications/email")
@@ -459,7 +498,13 @@ def get_current_user(authorization: Optional[str] = Header(None)):
         user_client = get_user_client_from_jwt(token)
         account = Account(user_client)
         user = account.get()
+        profiles = db.list_documents(db_id, db_collection_id1,
+                                     queries=[Query.equal('email', user['email'])]).get('documents', [])
+        if any(profile.get('must_change_password') is True for profile in profiles):
+            raise HTTPException(403, 'Change your temporary password before continuing.')
         return user
+    except HTTPException:
+        raise
     except AppwriteException as e:
         raise HTTPException(status_code=e.code or 401, detail=e.message)
     except Exception as e:
@@ -524,6 +569,8 @@ def refresh_session(authorization: str = Header(default="")):
                                      queries=[Query.equal("email", actor["email"])])["documents"]
         if not profiles or profiles[0].get("status", "Active").lower() != "active":
             raise HTTPException(403, "Your account is not active.")
+        if profiles[0].get('must_change_password') is True:
+            raise HTTPException(403, 'Change your temporary password before continuing.')
         from routes.r18_system_config import _get_or_create_config
         config = _get_or_create_config()
         renewed = users.create_jwt(user_id=actor["$id"], session_id=session_id, duration=900)

@@ -1,4 +1,7 @@
-from fastapi import APIRouter, Form, HTTPException, status
+from fastapi import APIRouter, Depends, Form, HTTPException, status
+from auth import get_current_user
+from temporary_passwords import generate_temporary_password
+from email_delivery import send_email, cipher
 from pydantic import BaseModel, EmailStr
 from typing import Annotated
 from enum import Enum
@@ -95,11 +98,12 @@ def _validate_driver_profile(
 def register_user(
         name: Annotated[str, Form()],
         email: Annotated[EmailStr, Form()],
-        password: Annotated[str, Form()],
         address: Annotated[str, Form()],
         role: Annotated[Role, Form()],
         phone: Annotated[str, Form()],
         department: Annotated[str, Form()],
+        password: Annotated[str, Form()] = "",
+        actor: dict = Depends(get_current_user),
         user_status: Annotated[UserStatus, Form(alias="status")] = UserStatus.ACTIVE,
         actor_id: Annotated[str, Form()] = "",
         actor_role: Annotated[str, Form()] = "",
@@ -109,7 +113,22 @@ def register_user(
         vehicle_capacity_kg: Annotated[float, Form()] = 0,
         ):
 
+    actors = db.list_documents(db_id, db_collection_id1, queries=[Query.equal('email', [actor.get('email', '')]), Query.limit(2)]).get('documents', [])
+    if len(actors) != 1 or actors[0].get('role') not in {'admin', 'superadmin'} or actors[0].get('status') != 'Active':
+        raise HTTPException(403, 'Only active administrators can create users.')
+    actor_id, actor_role = actors[0]['$id'], actors[0]['role']
+    if role == Role.SUPERADMIN and actor_role != 'superadmin':
+        raise HTTPException(403, 'Only Super Admin can create Super Admin accounts.')
     _validate_driver_manager(role, actor_role)
+    from routes.email_settings import load_settings
+    settings = load_settings()
+    if not settings.get('enabled') or not settings.get('host') or not settings.get('sender_email'):
+        raise HTTPException(503, 'Enable SMTP email settings before creating users.')
+    try:
+        cipher()
+    except Exception:
+        raise HTTPException(503, 'The email encryption key is not configured correctly.')
+    password = generate_temporary_password()
     email = str(email).strip().lower()
     _validate_driver_profile(
         role,
@@ -136,13 +155,14 @@ def register_user(
             password=password,
             name=name
         )
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Auth user creation failed: {e}")
+    except Exception:
+        raise HTTPException(status_code=503, detail="Unable to create the login account. Check whether this email already has an account and try again.")
 
     user_created = {
         "name": name,
         "email": email,
-        "password": password,
+        "password": "",
+        "must_change_password": True,
         "role": role,
         "status": user_status,
         "address": address,
@@ -154,12 +174,24 @@ def register_user(
         "vehicle_capacity_kg": max(vehicle_capacity_kg, 0) if role == Role.DRIVER else 0,
     }
 
-    registered_user = db.create_document(
-        database_id= db_id,
-        collection_id=db_collection_id1,
-        document_id=user_id,
-        data= user_created
-    )
+    try:
+        registered_user = db.create_document(
+            database_id=db_id, collection_id=db_collection_id1,
+            document_id=user_id, data=user_created)
+        send_email(settings, email, 'Your Farm Estates account is ready',
+            f'Your account has been created.\n\nEmail: {email}\nTemporary password: {password}\n\nSign in with this temporary password. You must choose a new password before accessing the app. If your account is pending approval, sign in after approval.\n\nKeep this password private.',
+            recipient_name=name, recipient_role=role.value)
+    except Exception:
+        # Never leave an inaccessible account after a failed email or profile write.
+        try:
+            auth_users.delete(user_id=user_id)
+        except Exception:
+            raise HTTPException(503, 'Account setup was interrupted. Contact support before retrying.')
+        try:
+            db.delete_document(db_id, db_collection_id1, user_id)
+        except Exception:
+            pass
+        raise HTTPException(503, 'Account setup or welcome email failed. Check SMTP settings and try again.')
     write_audit(
         action_type="Create",
         collection_name="Users",
@@ -170,7 +202,7 @@ def register_user(
     )
 
     return {
-        "message": "User registered successfully",
+        "message": "User created. Temporary password sent by email.",
         "user_id": registered_user["$id"]
     }
 

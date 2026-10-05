@@ -50,6 +50,12 @@ class SessionTests(unittest.TestCase):
         self.assertEqual(self.call(), {'jwt': 'renewed', 'session_timeout': 10, 'session_idle_warning_minutes': 2})
         self.users.create_jwt.assert_called_once_with(user_id='alice', session_id='verified-session', duration=900)
 
+    def test_temporary_password_user_cannot_refresh_session(self):
+        self.db.list_documents.return_value = {'documents': [{'status': 'Active', 'must_change_password': True}]}
+        with self.assertRaises(HTTPException) as result: self.call()
+        self.assertEqual(result.exception.status_code, 403)
+        self.users.create_jwt.assert_not_called()
+
     def test_missing_token_rejected(self):
         with self.assertRaises(HTTPException) as error: self.call('')
         self.assertEqual(error.exception.status_code, 401)
