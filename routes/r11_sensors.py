@@ -493,6 +493,8 @@ def ingest_sensor_reading(
             timestamp=timestamp,
             source="ingest",
         )
+        from workflow_notifications import notify_change
+        notify_change('Sensor readings', 'Update', sensor, updated)
         return {
             "message": "Sensor reading updated",
             "mode": "updated",
@@ -557,6 +559,8 @@ def ingest_sensor_reading(
         timestamp=timestamp,
         source="ingest",
     )
+    from workflow_notifications import notify_change
+    notify_change('Sensor readings', 'Create', current=created)
     return {
         "message": "Sensor registered and reading ingested",
         "mode": "created",

@@ -32,12 +32,13 @@ def register_alerts_info(
         message: Annotated[str, Form()],
         sensorType: Annotated[sensorType, Form()],
         severity: Annotated[Severity, Form()],
+        farmID: Annotated[str, Form()],
         resolved: Annotated[bool, Form()] = False
         ):    
     timestamp = datetime.now(timezone.utc).isoformat()
 
     alerts_info = {
-        "farmID": ID.unique(),
+        "farmID": farmID,
         "message": message,
         "sensorType": sensorType,
         "severity": severity,
@@ -101,7 +102,7 @@ def update_alert(
     ):
     
     # timestamp = datetime.now(timezone.utc).isoformat()
-    timestamp = timezone
+    timestamp = datetime.now(timezone.utc).isoformat()
 
     try:
         # Perform update

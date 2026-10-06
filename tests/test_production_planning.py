@@ -74,6 +74,10 @@ class PlanningTests(unittest.TestCase):
 
 class RouteTests(unittest.TestCase):
     def setUp(self):
+        # Route tests must never fan out notifications through live Appwrite.
+        notifications = patch('workflow_notifications.notify_change')
+        notifications.start()
+        self.addCleanup(notifications.stop)
         self.db = Mock()
         self.plant = {'$id': 'plant', 'name': 'Lettuce', 'production_plan': json.dumps(PLAN)}
         self.saved = batch()

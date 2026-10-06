@@ -9,6 +9,7 @@ from appwrite.services.account import Account
 from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel, Field
 
+from notification_preferences import preferences_for, delivery_options
 from auth import get_user_client_from_jwt
 from db import db
 from main import db_id, db_collection_id1
@@ -116,8 +117,9 @@ def message_notifications(actor=Depends(current_member)):
     names = {member["$id"]: member.get("name", "Team member")
              for member in _all(db_collection_id1, [])}
     incoming.sort(key=lambda row: (row["$createdAt"], row["$id"]), reverse=True)
+    options = delivery_options('message', preferences_for(actor))
     return {"notifications": [
-        {"id": "message:" + row["$id"], "message_id": row["$id"],
+        {**options, "id": "message:" + row["$id"], "message_id": row["$id"],
          "peer_id": row["sender_id"],
          "title": names.get(row["sender_id"], "Team member"),
          "message": row["text"], "created_at": row["$createdAt"],

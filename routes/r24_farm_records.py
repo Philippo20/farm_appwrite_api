@@ -13,7 +13,7 @@ from batch_record_access import can_review_records
 from audit_utils import write_audit
 from db import db
 from main import db_collection_id1, db_collection_id2, db_collection_id5, db_collection_id7, db_collection_id24, db_id
-from routes.r25_notifications import create_notification
+from notification_email import queue_notification_email
 
 collection24_router = APIRouter(tags=["Farm Records"])
 
@@ -317,28 +317,15 @@ def create_farm_record(
                 previous_data=batch,
                 new_data=batch_update,
             )
-            if has_issues and batch.get("farm_manager_id"):
-                try:
-                    create_notification(
-                        recipient_id=str(batch.get("farm_manager_id")),
-                        recipient_name=str(batch.get("farm_manager_name") or "Farm Manager"),
-                        title="Batch issue reported",
-                        message=(
-                            f"{created_by_name} reported a {issue_severity.value} issue "
-                            f"for {batch.get('batch_no', batch_number or 'a batch')}: "
-                            f"{issue_description.strip()}"
-                        )[:500],
-                        notification_type="batch",
-                        priority=(
-                            "urgent"
-                            if issue_severity == IssueSeverity.CRITICAL
-                            else "high"
-                            if issue_severity == IssueSeverity.HIGH
-                            else "normal"
-                        ),
-                    )
-                except Exception as notification_error:
-                    print(f"Batch issue notification failed: {notification_error}")
+        # Preserve the existing optional issue email; the shared event policy
+        # below persists one notification for each relevant farm team member.
+        if has_issues and batch is not None and batch_update and batch.get('farm_manager_id'):
+            try:
+                queue_notification_email(str(batch['farm_manager_id']), 'Batch issue reported',
+                    f"{created_by_name} reported a {issue_severity.value} issue for {batch.get('batch_no', batch_number)}: {issue_description.strip()}"[:500], 'batch')
+            except Exception:
+                import logging
+                logging.getLogger(__name__).exception('Issue email could not be queued')
         write_audit(
             action_type="Create",
             collection_name="Farm Records",

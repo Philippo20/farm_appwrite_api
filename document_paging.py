@@ -1,7 +1,7 @@
 from appwrite.query import Query
 
 
-def list_all_documents(db, *, database_id, collection_id):
+def list_all_documents(db, *, database_id, collection_id, queries=None):
     """Collect every page for existing list endpoints without changing their shape."""
     documents = []
     seen = set()
@@ -10,7 +10,7 @@ def list_all_documents(db, *, database_id, collection_id):
         result = db.list_documents(
             database_id=database_id,
             collection_id=collection_id,
-            queries=[Query.limit(100), Query.offset(offset)],
+            queries=[*(queries or []), Query.limit(100), Query.offset(offset)],
         )
         page = result.get("documents", [])
         for document in page:

@@ -186,6 +186,8 @@ async def register_batch(
                 "updated_at": now
             }
         )
+        from workflow_notifications import notify_change
+        notify_change('Batches', 'Create', current=batches_info)
         return {
             "message": "Batches information created successfully",
              "batch_id": batches_info["$id"],

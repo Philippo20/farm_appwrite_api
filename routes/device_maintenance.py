@@ -140,6 +140,8 @@ def save_device(body, profile, device_id=None):
         saved = db.update_document(db_id, db_collection_id11, device_id, data)
     else:
         saved = db.create_document(db_id, db_collection_id11, ID.unique(), data, permissions=[])
+    from workflow_notifications import notify_change
+    notify_change('Device maintenance', 'Update' if previous else 'Create', previous, saved)
     return {'device': saved}
 
 
@@ -223,5 +225,7 @@ def complete(device_id: str, plan_id: str, body: Completion, profile=Depends(act
     except AppwriteException as error:
         if error.code != 409: raise
         raise HTTPException(409, 'This occurrence has already been completed. Refresh the schedule.') from error
+    from workflow_notifications import notify_change
+    notify_change('Maintenance completion', 'Create', current={**record, '$id': record_id})
     return {'record': {**record, '$id': record_id},
             'next_task': schedule_view(device, plan, [*records, record], today)}

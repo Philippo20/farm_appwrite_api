@@ -39,7 +39,7 @@ def publish_reminders():
                     document_id=identifier, data={
                         'notification_id': identifier, 'recipient_id': recipient,
                         'recipient_name': users[recipient].get('name', ''),
-                        'title': title, 'message': message, 'type': 'system',
+                        'title': title, 'message': message, 'type': 'harvest' if kind == 'harvest' else 'batch',
                         'priority': 'high' if state == 'overdue' else 'normal',
                         'is_read': False, 'created_at': now.isoformat(),
                         'related_task_id': batch['$id'],
@@ -55,6 +55,11 @@ async def reminder_loop():
             await asyncio.to_thread(publish_reminders)
         except Exception:
             logging.getLogger(__name__).exception('Production reminder pass failed; retrying in five minutes')
+        try:
+            from operational_reminders import publish_operational_reminders
+            await asyncio.to_thread(publish_operational_reminders)
+        except Exception:
+            logging.getLogger(__name__).exception('Operational reminders failed; retrying in five minutes')
         await asyncio.sleep(300)
 
 

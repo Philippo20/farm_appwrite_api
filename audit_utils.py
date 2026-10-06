@@ -66,3 +66,7 @@ def write_audit(
         )
     except Exception as error:
         print(f"Audit write failed: {error}")
+
+    if status == "Success":
+        from workflow_notifications import notify_change
+        notify_change(collection_name, action_type, previous_data, new_data)

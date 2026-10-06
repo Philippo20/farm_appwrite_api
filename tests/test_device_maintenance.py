@@ -38,6 +38,10 @@ class MaintenancePolicyTests(unittest.TestCase):
 
 class MaintenanceRouteTests(unittest.TestCase):
     def setUp(self):
+        # Route tests must never fan out notifications through live Appwrite.
+        notifications = patch('workflow_notifications.notify_change')
+        notifications.start()
+        self.addCleanup(notifications.stop)
         self.profile = {'$id': 'tech', 'role': 'technician', 'status': 'Active', 'name': 'Technician'}
         self.farm = {'$id': 'farm', 'technician_id': 'tech', 'name': 'Farm'}
         self.plan = {'id': 'plan', 'type': 'calibration', 'interval_days': 30, 'first_due': '2026-01-01', 'assigned_to_id': 'tech'}
