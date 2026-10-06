@@ -1,5 +1,6 @@
 """Calendar-day growth plans. Saved batch plans are independent of the catalog."""
 import json
+import calendar
 from datetime import date, timedelta
 
 
@@ -14,8 +15,8 @@ def validate_plan(value):
     if not plan:
         return {}
     stages = plan.get('stages', [])
-    if not isinstance(stages, list) or not 1 <= len(stages) <= 20:
-        raise ValueError('Add between 1 and 20 growth stages.')
+    if not isinstance(stages, list) or not 0 <= len(stages) <= 20:
+        raise ValueError('Use up to 20 growth stages.')
     names, clean = set(), []
     for stage in stages:
         name = str(stage.get('name', '')).strip()
@@ -36,7 +37,16 @@ def validate_plan(value):
         raise ValueError('Reminder lead time must be shorter than the production interval.')
     if sum(item['days'] for item in clean) > 3650:
         raise ValueError('Total maturity cannot exceed 3650 days.')
-    return {'version': 1, 'stages': clean, 'interval_days': interval, 'reminder_days': lead}
+    result = {'version': 1, 'stages': clean, 'interval_days': interval, 'reminder_days': lead}
+    if not clean:
+        maturity = plan.get('maturity_value')
+        unit = plan.get('maturity_unit')
+        if not interval:
+            raise ValueError('Enable staggered production or add growth stages.')
+        if type(maturity) is not int or not 1 <= maturity <= 3650 or unit not in ('days', 'weeks', 'months'):
+            raise ValueError('Staggered production needs a valid maturity duration.')
+        result.update(maturity_value=maturity, maturity_unit=unit)
+    return result
 
 
 def schedule(plan_value, start_value):
@@ -49,6 +59,14 @@ def schedule(plan_value, start_value):
         end = cursor + timedelta(days=stage['days'])
         stages.append({**stage, 'start_date': cursor.isoformat(), 'end_date': end.isoformat()})
         cursor = end
+    if not stages:
+        amount = plan['maturity_value']
+        if plan['maturity_unit'] == 'months':
+            month_index = start.year * 12 + start.month - 1 + amount
+            year, month = divmod(month_index, 12)
+            cursor = date(year, month + 1, min(start.day, calendar.monthrange(year, month + 1)[1]))
+        else:
+            cursor = start + timedelta(days=amount * (7 if plan['maturity_unit'] == 'weeks' else 1))
     interval = plan.get('interval_days', 0)
     return {'stages': stages, 'expected_harvest': cursor.isoformat(),
             'next_batch_start': (start + timedelta(days=interval)).isoformat() if interval else None}

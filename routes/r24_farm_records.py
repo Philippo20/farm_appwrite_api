@@ -209,7 +209,7 @@ def create_farm_record(
 
         _ensure_batch_open(batch)
         plan = read_plan(batch.get('production_plan'))
-        if growth_stage.strip() and plan and growth_stage.strip() not in {s['name'] for s in plan['stages']}:
+        if growth_stage.strip() and plan.get('stages') and growth_stage.strip() not in {s['name'] for s in plan['stages']}:
             raise HTTPException(status_code=422, detail="Choose a growth stage from this batch's saved plan.")
 
         if str(batch.get("farmID") or "").strip() != farm_id.strip():

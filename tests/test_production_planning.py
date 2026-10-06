@@ -22,6 +22,18 @@ def batch(identity='b1', start='2026-10-05', farm='f1', **extra):
 
 
 class PlanningTests(unittest.TestCase):
+    def test_staggered_without_stages_uses_maturity_and_has_no_stage_reminders(self):
+        plan = validate_plan({'stages': [], 'interval_days': 14, 'reminder_days': 2,
+                              'maturity_value': 6, 'maturity_unit': 'weeks'})
+        result = schedule(plan, '2026-10-05')
+        self.assertEqual(result['stages'], [])
+        self.assertEqual(result['expected_harvest'], '2026-11-16')
+        self.assertEqual(result['next_batch_start'], '2026-10-19')
+        events = list(reminder_events([batch(production_plan=json.dumps(plan))], date(2026, 11, 17)))
+        self.assertEqual({e[1] for e in events}, {'harvest', 'next-batch'})
+        plan.update(maturity_value=1, maturity_unit='months')
+        self.assertEqual(schedule(plan, '2028-01-31')['expected_harvest'], '2028-02-29')
+
     def test_six_week_maturity_two_week_stagger(self):
         plan = validate_plan(PLAN)
         a = schedule(plan, '2026-10-05')
@@ -95,6 +107,19 @@ class RouteTests(unittest.TestCase):
         self.assertEqual(json.loads(saved['production_plan'])['interval_days'], 14)
         response = self.client.post('/plant_type/info', data={**payload, 'production_plan': '{bad'})
         self.assertEqual(response.status_code, 422)
+
+    def test_staggered_plant_preserves_maturity_range_without_custom_stages(self):
+        response = self.client.post('/plant_type/info', data={'name': 'Lettuce', 'status': 'active',
+            'maturity_min_value': '4', 'maturity_max_value': '6', 'maturity_unit': 'weeks',
+            'production_plan': json.dumps({'stages': [], 'interval_days': 14, 'reminder_days': 2})})
+        self.assertEqual(response.status_code, 200, response.text)
+        saved = self.db.create_document.call_args.kwargs['data']
+        self.assertEqual(saved['maturity_min_value'], 4)
+        self.assertEqual(saved['maturity_max_value'], 6)
+        self.assertEqual(saved['maturity_unit'], 'weeks')
+        plan = json.loads(saved['production_plan'])
+        self.assertEqual(plan['stages'], [])
+        self.assertEqual(schedule(plan, '2026-10-05')['expected_harvest'], '2026-11-16')
 
     def test_batch_snapshots_plan_and_ignores_client_harvest_date(self):
         response = self.client.post('/batches/info', data={'batch_no': 'B1', 'farmID': 'farm', 'farm_name': 'Farm',

@@ -7,7 +7,7 @@ from appwrite.id import ID
 from audit_utils import write_audit
 import math
 import json
-from production_planning import validate_plan
+from production_planning import validate_plan, read_plan
 from document_paging import list_all_documents
 
 
@@ -71,7 +71,7 @@ async def register_plant_type(
         plant_data.update(_maturity_fields(
             min_value, max_value, maturity_unit or MaturityUnit.MONTHS))
         if production_plan is not None:
-            plant_data.update(_production_fields(production_plan))
+            plant_data.update(_production_fields(production_plan, min_value, max_value, maturity_unit or MaturityUnit.MONTHS))
         plant_type_info_doc = db.create_document(
             database_id=db_id,
             collection_id=db_collection_id3,
@@ -239,7 +239,7 @@ async def update_plant_type(plant_type_id:str,
         update_data.update(_maturity_fields(
             min_value, max_value, maturity_unit or MaturityUnit.MONTHS))
         if production_plan is not None:
-            update_data.update(_production_fields(production_plan))
+            update_data.update(_production_fields(production_plan, min_value, max_value, maturity_unit or MaturityUnit.MONTHS))
         updated_doc = db.update_document(
             database_id=db_id,
             collection_id=db_collection_id3,
@@ -289,13 +289,16 @@ def delete_plant_type(plant_type_id:str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-def _production_fields(value):
+def _production_fields(value, min_value=1, max_value=1, unit=MaturityUnit.MONTHS):
     try:
-        plan = validate_plan(value)
+        candidate = read_plan(value)
+        if candidate and not candidate.get('stages'):
+            candidate.update(maturity_value=max_value, maturity_unit=unit.value)
+        plan = validate_plan(candidate)
     except (ValueError, TypeError, AttributeError) as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
     fields = {'production_plan': json.dumps(plan)}
-    if plan:
+    if plan.get('stages'):
         days = sum(stage['days'] for stage in plan['stages'])
         fields.update(_maturity_fields(days, days, MaturityUnit.DAYS))
     return fields
