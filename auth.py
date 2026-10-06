@@ -1,3 +1,4 @@
+from user_roles import effective_profile, assigned_roles
 from temporary_passwords import make_challenge, read_challenge
 from fastapi import APIRouter, Form, Header, HTTPException, Depends, Request, Body
 from appwrite.services.account import Account
@@ -234,7 +235,7 @@ def login_user(
             "message": "Login successful",
             "session_id": session["$id"],
             "jwt": jwt_result["jwt"],
-            "user": {k: v for k, v in profile.items() if k != "password"}
+            "user": {**{k: v for k, v in profile.items() if k != "password"}, "roles": assigned_roles(profile)}
         }
 
     except HTTPException:
@@ -490,7 +491,8 @@ def update_phone(
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Failed to update phone: {str(e)}")
 
-def get_current_user(authorization: Optional[str] = Header(None)):
+def get_current_user(authorization: Optional[str] = Header(None),
+                     x_active_role: Annotated[Optional[str], Header()] = None):
     if not authorization:
         raise HTTPException(status_code=401, detail="Authorization header missing")
     token = authorization.replace("Bearer ", "").strip()
@@ -502,7 +504,10 @@ def get_current_user(authorization: Optional[str] = Header(None)):
                                      queries=[Query.equal('email', user['email'])]).get('documents', [])
         if any(profile.get('must_change_password') is True for profile in profiles):
             raise HTTPException(403, 'Change your temporary password before continuing.')
-        return user
+        if len(profiles) != 1 or profiles[0].get('status') != 'Active':
+            raise HTTPException(403, 'Your account is not active.')
+        selected = effective_profile(profiles[0], x_active_role)
+        return {**user, '_active_role': selected['role']}
     except HTTPException:
         raise
     except AppwriteException as e:
@@ -585,3 +590,23 @@ def refresh_session(authorization: str = Header(default="")):
         if error.code == 404 and getattr(error, "type", "") == "user_session_not_found":
             raise HTTPException(401, "Your session has expired. Please sign in again.") from error
         raise HTTPException(503, "Unable to verify your session. Try again.") from error
+
+
+@auth_router.get('/account/roles')
+def account_roles(actor: dict = Depends(get_current_user)):
+    profiles = db.list_documents(db_id, db_collection_id1,
+        queries=[Query.equal('email', actor['email']), Query.limit(2)])['documents']
+    if len(profiles) != 1 or profiles[0].get('status') != 'Active':
+        raise HTTPException(403, 'Your account is not active.')
+    profile = profiles[0]
+    return {'roles': assigned_roles(profile), 'primary_role': profile['role']}
+
+
+@auth_router.post('/account/roles/{selected_role}')
+def select_account_role(selected_role: str, actor: dict = Depends(get_current_user)):
+    profiles = db.list_documents(db_id, db_collection_id1,
+        queries=[Query.equal('email', actor['email']), Query.limit(2)])['documents']
+    if len(profiles) != 1 or profiles[0].get('status') != 'Active':
+        raise HTTPException(403, 'Your account is not active.')
+    profile = effective_profile(profiles[0], selected_role)
+    return {'role': profile['role'], 'roles': profile['roles']}

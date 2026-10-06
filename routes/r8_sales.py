@@ -1,3 +1,4 @@
+from user_roles import assigned_roles, has_role
 from document_paging import list_all_documents
 from fastapi import APIRouter, Form, HTTPException, status
 from typing import Annotated
@@ -254,7 +255,7 @@ def _assigned_user(user_id, allowed_roles, label):
             status_code=status.HTTP_409_CONFLICT,
             detail=f"The selected {label} is not active.",
         )
-    if _normalized(user.get("role")) not in {_normalized(role) for role in allowed_roles}:
+    if not set(assigned_roles(user)).intersection({_normalized(role) for role in allowed_roles}):
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=f"The selected user is not a valid {label}.",

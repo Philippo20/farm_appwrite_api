@@ -1,3 +1,4 @@
+from user_roles import effective_profile, requested_roles, check_role_assignment, assigned_roles
 import ast
 import json
 import os
@@ -11,12 +12,11 @@ from cryptography.fernet import Fernet
 from appwrite.exception import AppwriteException
 import temporary_passwords as temporary
 
-class HTTPException(Exception):
-    def __init__(self, status_code, detail):
-        self.status_code, self.detail = status_code, detail
+from fastapi import HTTPException
 
 
 def handler(path, name, scope):
+    scope.update(effective_profile=effective_profile, requested_roles=requested_roles, check_role_assignment=check_role_assignment, assigned_roles=assigned_roles)
     node = next(n for n in ast.parse(Path(path).read_text(encoding='utf-8')).body
                 if isinstance(n, ast.FunctionDef) and n.name == name)
     node.decorator_list = []

@@ -1,3 +1,4 @@
+from user_roles import effective_profile, has_role
 """Authenticated device registration, independent schedules and append-only history."""
 import json
 import math
@@ -22,6 +23,8 @@ HISTORY = os.getenv('APPWRITE_DEVICE_MAINTENANCE_HISTORY', 'device_maintenance_h
 def actor_profile(actor=Depends(get_current_user)):
     profiles = db.list_documents(db_id, db_collection_id1,
         queries=[Query.equal('email', [actor.get('email', '')]), Query.limit(2)])['documents']
+    if len(profiles) == 1:
+        profiles[0] = effective_profile(profiles[0], actor.get('_active_role'))
     if len(profiles) != 1 or profiles[0].get('status') != 'Active' or profiles[0].get('role') not in {'admin', 'superadmin', 'technician'}:
         raise HTTPException(403, 'Only active administrators and assigned technicians can manage devices.')
     return profiles[0]
@@ -96,7 +99,7 @@ def prepare_plans(submitted, previous, profile, farm):
             except AppwriteException as error:
                 if error.code != 404: raise
                 raise HTTPException(422, 'Assign an active technician to this farm first.') from error
-            if assignee.get('role') != 'technician' or not can_manage(assignee, farm):
+            if not has_role(assignee, 'technician') or not can_manage({**assignee, 'role': 'technician'}, farm):
                 raise HTTPException(422, 'Maintenance must be assigned to an active technician for this farm.')
         data['assigned_to_id'] = assigned
         result.append(data)

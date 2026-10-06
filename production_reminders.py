@@ -1,3 +1,4 @@
+from user_roles import assigned_roles
 """Persisted in-app reminders; deterministic IDs make multiple API workers safe."""
 import asyncio
 import hashlib
@@ -21,7 +22,7 @@ def publish_reminders():
     farms = {f['$id']: f for f in rows(db_collection_id2)}
     users = {u['$id']: u for u in rows(db_collection_id1)
              if str(u.get('status', '')).lower() == 'active'}
-    admins = {key for key, u in users.items() if str(u.get('role', '')).lower() in ('admin', 'superadmin', 'super_admin')}
+    admins = {key for key, u in users.items() if set(assigned_roles(u)).intersection({'admin', 'superadmin'})}
     now = datetime.now(timezone.utc)
     for batch, kind, due, title, state in reminder_events(batches, now.date()):
         farm = farms.get(batch['farmID'])

@@ -1,3 +1,4 @@
+from user_roles import effective_profile
 import hashlib
 import hmac
 import json
@@ -50,6 +51,8 @@ def sensor_for(serial):
 
 def authorize_user(actor, sensor):
     profiles = db.list_documents(db_id, db_collection_id1, queries=[Query.equal('email', [actor.get('email', '')]), Query.limit(2)])['documents']
+    if len(profiles) == 1:
+        profiles[0] = effective_profile(profiles[0], actor.get('_active_role'))
     farm = db.get_document(db_id, db_collection_id2, sensor['farmID'])
     if len(profiles) != 1 or not can_control(profiles[0], farm):
         raise HTTPException(403, 'You cannot control this farm equipment')

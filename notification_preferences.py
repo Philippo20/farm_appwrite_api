@@ -1,9 +1,10 @@
+from user_roles import has_role
 """Delivery preferences never remove items from the user's persistent inbox."""
 import logging
 
 
 def preferences_for(actor):
-    if actor.get('role') != 'caretaker': return {}
+    if not has_role(actor, 'caretaker'): return {}
     try:
         from db import db
         from main import db_id, db_collection_id27

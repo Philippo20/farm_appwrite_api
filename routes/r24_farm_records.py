@@ -1,3 +1,4 @@
+from user_roles import effective_profile
 from production_planning import read_plan
 from water_record_values import water_record_values
 from datetime import datetime, timezone
@@ -91,7 +92,7 @@ def batch_caretaker_records(batch_id: str, limit: int = RequestQuery(100, ge=1, 
         farm = db.get_document(db_id, db_collection_id2, batch['farmID'])
     except Exception:
         raise HTTPException(404, 'Batch or farm not found')
-    if not can_review_records(profiles[0], farm):
+    if not can_review_records(effective_profile(profiles[0], actor.get('_active_role')), farm):
         raise HTTPException(403, 'You cannot review records for this farm')
     result = db.list_documents(db_id, db_collection_id24, queries=[
         Query.equal('batch_id', [batch_id]), Query.equal('farm_id', [batch['farmID']]),

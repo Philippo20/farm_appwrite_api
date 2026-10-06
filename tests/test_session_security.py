@@ -1,3 +1,4 @@
+from user_roles import assigned_roles
 """Exercise the production session handler with isolated Appwrite dependencies."""
 import ast
 import datetime
@@ -32,7 +33,7 @@ class SessionTests(unittest.TestCase):
         self.db.list_documents.return_value = {'documents': [{'status': 'Active'}]}
         self.claims = Mock()
         self.claims.decode.return_value = {'sessionId': 'verified-session'}
-        self.scope = dict(Header=lambda **_: '', HTTPException=HTTPException,
+        self.scope = dict(assigned_roles=assigned_roles,Header=lambda **_: '', HTTPException=HTTPException,
                           Account=lambda _: self.account, Users=lambda _: self.users,
                           get_user_client_from_jwt=lambda t: t, get_server_client=lambda: None,
                           jwt=self.claims, db=self.db, db_id='test', db_collection_id1='users',

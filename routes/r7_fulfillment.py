@@ -1,3 +1,4 @@
+from user_roles import assigned_roles, has_role
 from document_paging import list_all_documents
 from fastapi import APIRouter, Form, HTTPException, status
 from typing import Annotated
@@ -173,7 +174,7 @@ def _notify_roles(roles, *, title, message, priority="normal"):
     ).get("documents", [])
     normalized_roles = {_normalized(role) for role in roles}
     for user in users:
-        if _normalized(user.get("role")) not in normalized_roles:
+        if not set(assigned_roles(user)).intersection(normalized_roles):
             continue
         recipient_id = str(user.get("$id") or user.get("user_id") or "").strip()
         if not recipient_id:
@@ -792,7 +793,7 @@ def record_packaging_output(fulfillment_id: str, payload: PackagingRecordPayload
                     collection_id=db_collection_id1,
                 ).get("documents", [])
                 for user in users:
-                    if _normalized(user.get("role")) != "quality_officer":
+                    if not has_role(user, 'quality_officer'):
                         continue
                     recipient_id = str(user.get("$id") or user.get("user_id") or "").strip()
                     if not recipient_id:

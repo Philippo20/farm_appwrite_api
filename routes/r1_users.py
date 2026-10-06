@@ -1,3 +1,4 @@
+from user_roles import effective_profile, requested_roles, check_role_assignment
 from fastapi import APIRouter, Depends, Form, HTTPException, status
 from auth import get_current_user
 from temporary_passwords import generate_temporary_password
@@ -104,6 +105,7 @@ def register_user(
         department: Annotated[str, Form()],
         password: Annotated[str, Form()] = "",
         actor: dict = Depends(get_current_user),
+        roles: Annotated[str | None, Form()] = None,
         user_status: Annotated[UserStatus, Form(alias="status")] = UserStatus.ACTIVE,
         actor_id: Annotated[str, Form()] = "",
         actor_role: Annotated[str, Form()] = "",
@@ -114,12 +116,14 @@ def register_user(
         ):
 
     actors = db.list_documents(db_id, db_collection_id1, queries=[Query.equal('email', [actor.get('email', '')]), Query.limit(2)]).get('documents', [])
-    if len(actors) != 1 or actors[0].get('role') not in {'admin', 'superadmin'} or actors[0].get('status') != 'Active':
+    if len(actors) != 1:
         raise HTTPException(403, 'Only active administrators can create users.')
-    actor_id, actor_role = actors[0]['$id'], actors[0]['role']
-    if role == Role.SUPERADMIN and actor_role != 'superadmin':
-        raise HTTPException(403, 'Only Super Admin can create Super Admin accounts.')
-    _validate_driver_manager(role, actor_role)
+    manager = effective_profile(actors[0], actor.get('_active_role'))
+    selected_roles = requested_roles(roles, role)
+    check_role_assignment(manager, selected_roles)
+    actor_id, actor_role = manager['$id'], manager['role']
+    driver_role = Role.DRIVER if 'driver' in selected_roles else role
+    _validate_driver_manager(driver_role, actor_role)
     from routes.email_settings import load_settings
     settings = load_settings()
     if not settings.get('enabled') or not settings.get('host') or not settings.get('sender_email'):
@@ -131,7 +135,7 @@ def register_user(
     password = generate_temporary_password()
     email = str(email).strip().lower()
     _validate_driver_profile(
-        role,
+        driver_role,
         driver_license_number,
         vehicle,
         vehicle_type,
@@ -164,14 +168,15 @@ def register_user(
         "password": "",
         "must_change_password": True,
         "role": role,
+        "roles": selected_roles,
         "status": user_status,
         "address": address,
         "phone": phone,
         "department": department,
-        "driver_license_number": driver_license_number.strip() if role == Role.DRIVER else "",
-        "vehicle": vehicle.strip() if role == Role.DRIVER else "",
-        "vehicle_type": vehicle_type.strip() if role == Role.DRIVER else "",
-        "vehicle_capacity_kg": max(vehicle_capacity_kg, 0) if role == Role.DRIVER else 0,
+        "driver_license_number": driver_license_number.strip() if 'driver' in selected_roles else "",
+        "vehicle": vehicle.strip() if 'driver' in selected_roles else "",
+        "vehicle_type": vehicle_type.strip() if 'driver' in selected_roles else "",
+        "vehicle_capacity_kg": max(vehicle_capacity_kg, 0) if 'driver' in selected_roles else 0,
     }
 
     try:
@@ -316,6 +321,8 @@ def update_user(
     role: Annotated[Role, Form()],
     phone: Annotated[str, Form()],
     department: Annotated[str, Form()],
+    actor: dict = Depends(get_current_user),
+    roles: Annotated[str | None, Form()] = None,
     password: Annotated[str, Form()] = "",
     user_status: Annotated[UserStatus, Form(alias="status")] = UserStatus.ACTIVE,
     actor_id: Annotated[str, Form()] = "",
@@ -326,15 +333,23 @@ def update_user(
     vehicle_capacity_kg: Annotated[float, Form()] = 0,
     ):
     try:
+        actors = db.list_documents(db_id, db_collection_id1, queries=[Query.equal('email', actor.get('email', '')), Query.limit(2)])['documents']
+        if len(actors) != 1:
+            raise HTTPException(403, 'Only administrators can update users.')
+        manager = effective_profile(actors[0], actor.get('_active_role'))
+        actor_id, actor_role = manager['$id'], manager['role']
         previous_user = db.get_document(
             database_id=db_id,
             collection_id=db_collection_id1,
             document_id=user_id
         )
-        if role == Role.DRIVER or previous_user.get("role") == Role.DRIVER.value:
+        selected_roles = requested_roles(roles, role, previous_user)
+        check_role_assignment(manager, selected_roles, previous_user)
+        driver_role = Role.DRIVER if 'driver' in selected_roles else role
+        if driver_role == Role.DRIVER or previous_user.get("role") == Role.DRIVER.value:
             _validate_driver_manager(Role.DRIVER, actor_role)
         _validate_driver_profile(
-            role,
+            driver_role,
             driver_license_number,
             vehicle,
             vehicle_type,
@@ -345,14 +360,15 @@ def update_user(
                   "email": email,
                   "password": password,
                   "role": role,
+                  "roles": selected_roles,
                   "status": user_status,
                   "address": address,
                   "phone": phone,
                   "department": department,
-                  "driver_license_number": driver_license_number.strip() if role == Role.DRIVER else "",
-                  "vehicle": vehicle.strip() if role == Role.DRIVER else "",
-                  "vehicle_type": vehicle_type.strip() if role == Role.DRIVER else "",
-                  "vehicle_capacity_kg": max(vehicle_capacity_kg, 0) if role == Role.DRIVER else 0,
+                  "driver_license_number": driver_license_number.strip() if 'driver' in selected_roles else "",
+                  "vehicle": vehicle.strip() if 'driver' in selected_roles else "",
+                  "vehicle_type": vehicle_type.strip() if 'driver' in selected_roles else "",
+                  "vehicle_capacity_kg": max(vehicle_capacity_kg, 0) if 'driver' in selected_roles else 0,
             }
         if not password:
             update_data.pop("password")

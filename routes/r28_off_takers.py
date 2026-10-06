@@ -1,3 +1,4 @@
+from user_roles import assigned_roles, has_role
 from enum import Enum
 from typing import Annotated
 
@@ -16,8 +17,7 @@ def _notify_sales_users(title: str, message: str, exclude_id: str = ""):
     try:
         users = db.list_documents(database_id=db_id, collection_id=db_collection_id1)["documents"]
         for user in users:
-            role = str(user.get("role", user.get("user_role", ""))).lower().replace("_", " ")
-            if "sales manager" not in role and "sales personnel" not in role and "sales person" not in role:
+            if not set(assigned_roles(user)).intersection({'sales_manager', 'sales_person'}):
                 continue
             recipient_id = str(user.get("$id", user.get("id", "")))
             if not recipient_id or recipient_id == exclude_id:

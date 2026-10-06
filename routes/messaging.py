@@ -1,3 +1,4 @@
+from user_roles import effective_profile
 """Authenticated, persistent direct messages for the farm team."""
 import hashlib
 import os
@@ -8,6 +9,7 @@ from appwrite.query import Query
 from appwrite.services.account import Account
 from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel, Field
+from typing import Annotated
 
 from notification_preferences import preferences_for, delivery_options
 from auth import get_user_client_from_jwt
@@ -31,7 +33,7 @@ def _all(collection, queries):
         offset += len(rows)
 
 
-def current_member(authorization: str = Header(default="")):
+def current_member(authorization: str = Header(default=""), x_active_role: Annotated[str | None, Header()] = None):
     if not authorization.startswith("Bearer "):
         raise HTTPException(401, "Please sign in to use messages.")
     try:
@@ -44,7 +46,7 @@ def current_member(authorization: str = Header(default="")):
         raise HTTPException(403, "Your account is not active.")
     if member.get('must_change_password') is True:
         raise HTTPException(403, 'Change your temporary password before continuing.')
-    return member
+    return effective_profile(member, x_active_role)
 
 
 def _conversation(actor, peer):

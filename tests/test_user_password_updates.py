@@ -1,3 +1,4 @@
+from user_roles import effective_profile, requested_roles, check_role_assignment
 import ast
 from pathlib import Path
 import types
@@ -19,14 +20,15 @@ class UserPasswordUpdates(unittest.TestCase):
         for arg in node.args.args: arg.annotation = None
         self.db = Mock()
         self.db.get_document.return_value = {'name': 'Test', 'email': 'test@example.com', 'role': 'admin', 'password': 'old-secret'}
+        self.db.list_documents.return_value = {'documents': [{'$id': 'admin', 'role': 'admin', 'status': 'Active'}]}
         self.users = create_autospec(Users, instance=True, spec_set=True)
         self.audit = Mock()
-        scope = dict(db=self.db, db_id='test', db_collection_id1='users', auth_users=self.users,
+        scope = dict(effective_profile=effective_profile, requested_roles=requested_roles, check_role_assignment=check_role_assignment, Query=Mock(), db=self.db, db_id='test', db_collection_id1='users', auth_users=self.users,
                      HTTPException=HTTPException, Role=types.SimpleNamespace(DRIVER=types.SimpleNamespace(value='driver')),
                      _validate_driver_profile=Mock(), write_audit=self.audit)
         exec(compile(ast.Module(body=[node], type_ignores=[]), 'routes/r1_users.py', 'exec'), scope)
         self.call = scope['update_user']
-        self.args = dict(user_id='user', name='Test', email='test@example.com', password='', address='',
+        self.args = dict(actor={'email': 'admin@example.com'}, roles=None, user_id='user', name='Test', email='test@example.com', password='', address='',
                          role=types.SimpleNamespace(value='admin'), phone='', department='', user_status='Active',
                          actor_id='admin', actor_role='admin', driver_license_number='', vehicle='', vehicle_type='', vehicle_capacity_kg=0)
 

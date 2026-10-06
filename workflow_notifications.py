@@ -1,3 +1,4 @@
+from user_roles import assigned_roles
 """Explicit business-event policy, separate from delivery and email preferences."""
 import hashlib
 import logging
@@ -127,7 +128,7 @@ def publish_event(key, event):
     recipients.difference_update({'', None, 'Unassigned'})
     for user in users:
         if str(user.get('status', '')).lower() != 'active': continue
-        if user['$id'] not in recipients and user.get('email') not in recipients and user.get('role') not in roles:
+        if user['$id'] not in recipients and user.get('email') not in recipients and not set(assigned_roles(user)).intersection(roles):
             continue
         identifier = hashlib.sha256(f"{key}:{user['$id']}".encode()).hexdigest()[:36]
         try:
