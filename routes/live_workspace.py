@@ -1,3 +1,4 @@
+from farm_assignments import is_farm_caretaker
 """Authenticated calendar and financial review backed by existing collections."""
 from datetime import datetime, timezone
 from typing import Literal
@@ -33,7 +34,7 @@ def _finance_access(actor):
 def calendar(actor=Depends(current_member)):
     if _role(actor) != 'caretaker':
         raise HTTPException(403, 'Caretaker access is required.')
-    farms = {f['$id']: f for f in _rows(db_collection_id2) if f.get('caretakerID') == actor['$id']}
+    farms = {f['$id']: f for f in _rows(db_collection_id2) if is_farm_caretaker(f, actor)}
     events = []
     for task in _rows(db_collection_id23):
         # Include directly assigned tasks, and unassigned farm-wide tasks only.

@@ -1,3 +1,4 @@
+from farm_assignments import caretaker_ids
 from user_roles import assigned_roles
 """Persisted in-app reminders; deterministic IDs make multiple API workers safe."""
 import asyncio
@@ -28,7 +29,7 @@ def publish_reminders():
         farm = farms.get(batch['farmID'])
         if not farm:
             continue
-        recipients = admins | {farm.get('caretakerID'), farm.get('farm_manager_id')}
+        recipients = admins | set(caretaker_ids(farm)) | {farm.get('farm_manager_id')}
         for recipient in recipients & users.keys():
             key = f"{batch['$id']}:{kind}:{due}:{state}:{recipient}"
             identifier = hashlib.sha256(key.encode()).hexdigest()[:36]

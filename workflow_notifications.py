@@ -1,3 +1,4 @@
+from farm_assignments import caretaker_ids
 from user_roles import assigned_roles
 """Explicit business-event policy, separate from delivery and email preferences."""
 import hashlib
@@ -5,7 +6,7 @@ import logging
 from datetime import datetime, timezone
 
 ADMIN_ROLES = {'admin', 'superadmin', 'super_admin'}
-FARM_ASSIGNMENTS = ('ownerID', 'caretakerID', 'farm_manager_id', 'technician_id')
+FARM_ASSIGNMENTS = ('ownerID', 'farm_manager_id', 'technician_id')
 
 
 def sensor_band(sensor):
@@ -80,6 +81,9 @@ def events_for(collection, action, previous, current):
                   recipients=[data.get('user_id')],
                   roles=ADMIN_ROLES | {'accountant'} if action == 'Create' else ())
     elif collection == 'Farms':
+        added = set(caretaker_ids(data)) - set(caretaker_ids(old))
+        if added:
+            event('Farm assignment', f"You have been assigned to {data.get('name', 'a farm')}.", recipients=added)
         for field in FARM_ASSIGNMENTS:
             assigned = data.get(field)
             if assigned and assigned != old.get(field):
@@ -122,6 +126,7 @@ def publish_event(key, event):
         try:
             farm = db.get_document(db_id, db_collection_id2, farm_id)
             recipients.update(farm.get(field) for field in FARM_ASSIGNMENTS)
+            recipients.update(caretaker_ids(farm))
         except AppwriteException as error:
             if error.code != 404: raise
     roles = event.get('roles', ())

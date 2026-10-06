@@ -1,17 +1,30 @@
+from farm_assignments import requested_caretakers, validate_new_caretakers
+from routes.messaging import current_member
 from document_paging import list_all_documents
 import secrets
 
-from fastapi import APIRouter, Body, Form, HTTPException, status
+from fastapi import APIRouter, Body, Depends, Form, HTTPException, status
 from typing import Annotated
 from enum import Enum
 from datetime import datetime, date
-from main import db_id, db_collection_id2
+from main import db_id, db_collection_id1, db_collection_id2
 from db import db
 from appwrite.id import ID
 from appwrite.query import Query
 from audit_utils import write_audit
 
 collection2_router = APIRouter(tags=["Farms"])
+
+
+def _check_farm_manager(actor):
+    if actor.get('role') not in {'admin', 'superadmin'}:
+        raise HTTPException(403, 'Administrator access is required to assign a farm team.')
+
+
+def _caretaker_assignment(raw, primary, previous=None):
+    ids = requested_caretakers(raw, primary, previous)
+    validate_new_caretakers(ids, previous, lambda identity: db.get_document(db_id, db_collection_id1, identity))
+    return {'caretaker_ids': ids, 'caretakerID': ids[0] if ids else 'Unassigned'}
 
 
 def _generate_sensor_key() -> str:
@@ -39,9 +52,13 @@ def register_farm(
         ownerID: Annotated[str, Form()] = "Unassigned",
         caretakerID: Annotated[str, Form()] = "Unassigned",
         farm_manager_id: Annotated[str, Form()] = "Unassigned",
-        technician_id: Annotated[str, Form()] = "Unassigned"
+        technician_id: Annotated[str, Form()] = "Unassigned",
+        caretaker_ids: Annotated[str | None, Form()] = None,
+        actor: dict = Depends(current_member)
         ):
     
+    _check_farm_manager(actor)
+    assignment = _caretaker_assignment(caretaker_ids, caretakerID)
     # Ensure farm info with name and caretakerID combined does not exist
     existing = db.list_documents(
         database_id=db_id,
@@ -60,7 +77,7 @@ def register_farm(
         "name": name,
         "location": location,
         "ownerID": ownerID,
-        "caretakerID": caretakerID,
+        **assignment,
         "farm_manager_id": farm_manager_id,
         "technician_id": technician_id,
         "plant_type": plant_type,
@@ -69,7 +86,6 @@ def register_farm(
         "status": status,
         "sensor_ingest_api_key": _generate_sensor_key(),
     }
-    print(farms_info)
 
     farm_create = db.create_document(
         database_id= db_id,
@@ -80,8 +96,8 @@ def register_farm(
     write_audit(
         action_type="Create",
         collection_name="Farms",
-        performed_by_id=ownerID,
-        performed_by_role="farm_owner",
+        performed_by_id=actor["$id"],
+        performed_by_role=actor["role"],
         action_details=f"Created farm {name}",
         new_data=farms_info
     )
@@ -136,7 +152,10 @@ def update_farm(
     tier_type: Annotated[TierType, Form()],
     caretakerID: Annotated[str, Form()],
     farm_manager_id: Annotated[str, Form()] = "Unassigned",
-    technician_id: Annotated[str, Form()] = "Unassigned"):
+    technician_id: Annotated[str, Form()] = "Unassigned",
+    caretaker_ids: Annotated[str | None, Form()] = None,
+    actor: dict = Depends(current_member)):
+    _check_farm_manager(actor)
 
     try:
         previous_farm = db.get_document(
@@ -144,10 +163,11 @@ def update_farm(
             collection_id=db_collection_id2,
             document_id=farm_id
         )
+        assignment = _caretaker_assignment(caretaker_ids, caretakerID, previous_farm)
         update_data = {"name": name,
                   "location": location,
                   "ownerID": ownerID,
-                  "caretakerID": caretakerID,
+                  **assignment,
                   "farm_manager_id": farm_manager_id,
                   "technician_id": technician_id,
                   "plant_type": plant_type,
@@ -166,14 +186,16 @@ def update_farm(
         write_audit(
             action_type="Update",
             collection_name="Farms",
-            performed_by_id=ownerID,
-            performed_by_role="farm_owner",
+            performed_by_id=actor["$id"],
+            performed_by_role=actor["role"],
             action_details=f"Updated farm {name}",
             previous_data=previous_farm,
             new_data=update_data
         )
         return {"message": "Farm info updated successfully", "user": updated_farm_info}
 
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Update failed: {e}")
 

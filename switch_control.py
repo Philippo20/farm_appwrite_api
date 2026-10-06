@@ -1,3 +1,4 @@
+from farm_assignments import is_farm_caretaker
 """Pure policies for authenticated, short-lived relay commands."""
 from datetime import datetime, timezone
 
@@ -28,6 +29,7 @@ def can_control(profile, farm):
     role = str(profile.get('role', '')).lower().replace(' ', '_')
     if role in ('superadmin', 'super_admin', 'admin'):
         return True
-    field = {'caretaker': 'caretakerID', 'farm_owner': 'ownerID'}.get(role)
+    if role == 'caretaker': return is_farm_caretaker(farm, profile)
+    field = {'farm_owner': 'ownerID'}.get(role)
     identities = {str(profile.get('$id', '')), str(profile.get('email', ''))} - {''}
     return bool(field and str(farm.get(field, '')) in identities)

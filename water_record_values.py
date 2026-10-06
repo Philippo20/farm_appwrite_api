@@ -28,3 +28,17 @@ def water_record_values(record_type, bought_litres, bought_amount, ac_litres, wa
             raise ValueError('Water temperature must be a finite number.')
         values['water_temperature'] = temperature
     return values
+
+
+def water_parameter_values(ph, ec):
+    """Keep pH (unitless) and EC (mS/cm) independently named end-to-end."""
+    result = {}
+    for key, raw in [('ph', ph), ('ec', ec)]:
+        if raw is None or str(raw).strip() == '':
+            continue
+        try: value = float(raw)
+        except (TypeError, ValueError): raise ValueError(f'{key.upper()} must be a valid number.') from None
+        if not math.isfinite(value) or value < 0 or (key == 'ph' and value > 14):
+            raise ValueError('pH must be between 0 and 14.' if key == 'ph' else 'EC must be zero or a positive finite number in mS/cm.')
+        result[key] = value
+    return result

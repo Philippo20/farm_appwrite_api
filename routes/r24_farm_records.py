@@ -1,6 +1,8 @@
+from farm_assignments import is_farm_caretaker
+from routes.messaging import current_member
 from user_roles import effective_profile
-from production_planning import read_plan
-from water_record_values import water_record_values
+from production_planning import record_growth_plan, growth_stage_at
+from water_record_values import water_record_values, water_parameter_values
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Annotated, Optional
@@ -13,7 +15,7 @@ from batch_record_access import can_review_records
 
 from audit_utils import write_audit
 from db import db
-from main import db_collection_id1, db_collection_id2, db_collection_id5, db_collection_id7, db_collection_id24, db_id
+from main import db_collection_id1, db_collection_id2, db_collection_id3, db_collection_id5, db_collection_id7, db_collection_id24, db_id
 from notification_email import queue_notification_email
 
 collection24_router = APIRouter(tags=["Farm Records"])
@@ -162,7 +164,15 @@ def create_farm_record(
     transplanted_count: Annotated[str, Form()] = "",
     harvested_count: Annotated[str, Form()] = "",
     harvest_weight_kg: Annotated[str, Form()] = "",
+    actor: dict = Depends(current_member),
 ):
+    try:
+        farm = db.get_document(db_id, db_collection_id2, farm_id)
+    except Exception:
+        raise HTTPException(404, 'Farm not found.') from None
+    if actor.get('role') != 'caretaker' or not is_farm_caretaker(farm, actor):
+        raise HTTPException(403, 'You are not an assigned caretaker for this farm.')
+    created_by, created_by_name = actor['$id'], actor.get('name', '')
     if not farm_id.strip() or not farm_name.strip():
         raise HTTPException(status_code=400, detail="Farm is required")
     if has_issues and not issue_description.strip():
@@ -209,32 +219,19 @@ def create_farm_record(
             ) from error
 
         _ensure_batch_open(batch)
-        plan = read_plan(batch.get('production_plan'))
-        if growth_stage.strip() and plan.get('stages') and growth_stage.strip() not in {s['name'] for s in plan['stages']}:
-            raise HTTPException(status_code=422, detail="Choose a growth stage from this batch's saved plan.")
+        try:
+            plan = record_growth_plan(batch, lambda identity: db.get_document(db_id, db_collection_id3, identity))
+            growth_stage = growth_stage_at(plan, batch.get('start_date'), record_date)
+        except ValueError as error:
+            raise HTTPException(422, 'Unable to determine the growth stage: ' + str(error)) from error
+        except Exception as error:
+            raise HTTPException(503, 'Unable to load the plant growth plan. Please retry.') from error
 
         if str(batch.get("farmID") or "").strip() != farm_id.strip():
             raise HTTPException(
                 status_code=http_status.HTTP_403_FORBIDDEN,
                 detail="The selected batch does not belong to this farm.",
             )
-        assigned_id = str(batch.get("caretaker_id") or "").strip().lower()
-        assigned_name = str(batch.get("caretaker_name") or "").strip().lower()
-        actor_id = created_by.strip().lower()
-        actor_name = created_by_name.strip().lower()
-        if not assigned_id and not assigned_name:
-            raise HTTPException(
-                status_code=http_status.HTTP_403_FORBIDDEN,
-                detail="Assign a caretaker to this batch before recording progress.",
-            )
-        if assigned_id and assigned_id not in {actor_id, actor_name} and (
-            not assigned_name or assigned_name not in {actor_id, actor_name}
-        ):
-            raise HTTPException(
-                status_code=http_status.HTTP_403_FORBIDDEN,
-                detail="This batch is not assigned to the current caretaker.",
-            )
-
         for key, value in progress_values.items():
             if value is not None:
                 if value < 0:
@@ -273,12 +270,14 @@ def create_farm_record(
     }
 
     data.update(water_values)
+    try:
+        data.update(water_parameter_values(ph, ec))
+    except ValueError as error:
+        raise HTTPException(422, str(error)) from error
 
     optional_numbers = {
         "temperature": _float_or_none(temperature),
         "humidity": _float_or_none(humidity),
-        "ph": _float_or_none(ph),
-        "ec": _float_or_none(ec),
         "light_intensity": _float_or_none(light_intensity),
         "plant_count": _int_or_none(plant_count),
     }

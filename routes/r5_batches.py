@@ -1,3 +1,4 @@
+from farm_assignments import caretaker_ids
 import json
 from production_planning import validate_plan, schedule, batch_view
 from document_paging import list_all_documents
@@ -81,18 +82,18 @@ async def register_batch(
                 detail="The selected farm no longer exists.",
             ) from error
 
-        assigned_caretaker_id = str(farm.get("caretakerID") or "").strip()
-        if not assigned_caretaker_id or assigned_caretaker_id.lower() == "unassigned":
+        assigned_ids = caretaker_ids(farm)
+        if not assigned_ids:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail="Assign a caretaker to this farm before creating a batch.",
             )
-        if caretaker_id.strip() and caretaker_id.strip() != assigned_caretaker_id:
+        if caretaker_id.strip() and caretaker_id.strip() not in assigned_ids:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail="The selected caretaker is not assigned to this farm.",
             )
-        caretaker_id = assigned_caretaker_id
+        caretaker_id = caretaker_id.strip() or assigned_ids[0]
         try:
             caretaker = db.get_document(
                 database_id=db_id,

@@ -115,3 +115,36 @@ def reminder_events(batches, today):
         if today >= due_date - timedelta(days=plan.get('reminder_days', 2)):
             state = 'overdue' if today > due_date else 'due' if today == due_date else 'upcoming'
             yield batch, 'next-batch', due, 'Start the next batch', state
+
+
+def growth_stage_at(plan_value, start_value, record_value):
+    """Use calendar dates: start inclusive, next stage boundary exclusive.
+
+    The final configured stage continues until actual production completes;
+    passing its planned end never invents a new stage or marks a batch complete.
+    """
+    start = date.fromisoformat(str(start_value)[:10])
+    recorded = date.fromisoformat(str(record_value)[:10])
+    if recorded < start:
+        raise ValueError('The record date is before this batch starts.')
+    plan = validate_plan(plan_value)
+    stages = plan.get('stages', [])
+    if not stages:
+        return ''
+    elapsed = (recorded - start).days
+    for stage in stages:
+        if elapsed < stage['days']:
+            return stage['name']
+        elapsed -= stage['days']
+    return stages[-1]['name']
+
+
+def record_growth_plan(batch, load_plant):
+    """Prefer the batch snapshot; only legacy batches consult the plant catalog."""
+    saved = read_plan(batch.get('production_plan'))
+    if saved:
+        return saved
+    plant_id = batch.get('plant_type_ID')
+    if not plant_id:
+        return {}
+    return read_plan(load_plant(plant_id).get('production_plan'))
