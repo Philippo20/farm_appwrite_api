@@ -1,4 +1,5 @@
 """Private, recipient-scoped Android delivery. Database inbox remains authoritative."""
+import base64
 import hashlib
 import json
 import logging
@@ -29,13 +30,29 @@ def token_id(token):
     return hashlib.sha256(token.encode()).hexdigest()[:36]
 
 
+def service_account_info():
+    encoded = os.getenv('FIREBASE_SERVICE_ACCOUNT_BASE64', '').strip()
+    raw = os.getenv('FIREBASE_SERVICE_ACCOUNT_JSON', '').strip()
+    if not encoded and not raw:
+        return None
+    try:
+        if encoded:
+            raw = base64.b64decode(encoded, validate=True).decode('utf-8-sig')
+        data = json.loads(raw)
+        if not isinstance(data, dict) or data.get('type') != 'service_account':
+            raise ValueError()
+        return data
+    except (ValueError, UnicodeError):
+        raise ValueError('Invalid Firebase service-account configuration. Check the encrypted environment variable.') from None
+
+
 @lru_cache(maxsize=1)
 def firebase_app():
     import firebase_admin
     from firebase_admin import credentials
     # ADC reads GOOGLE_APPLICATION_CREDENTIALS; no private key is stored in code.
-    raw = os.getenv('FIREBASE_SERVICE_ACCOUNT_JSON', '')
-    credential = credentials.Certificate(json.loads(raw)) if raw else credentials.ApplicationDefault()
+    data = service_account_info()
+    credential = credentials.Certificate(data) if data is not None else credentials.ApplicationDefault()
     return firebase_admin.initialize_app(credential,
         options={'projectId': os.getenv('FIREBASE_PROJECT_ID', 'farmestatesltd-f8616'), 'httpTimeout': 10}, name='farm-push')
 

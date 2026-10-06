@@ -1,3 +1,5 @@
+import base64
+import json
 import os
 import unittest
 from datetime import datetime, timezone
@@ -14,6 +16,28 @@ class PushTests(unittest.TestCase):
         self.addCleanup(patch.stopall)
         self.actor = {'$id': 'alice', 'status': 'Active', 'role': 'admin'}
         self.token = 'device-token-' + 'x' * 40
+
+    def test_base64_preserves_key_newlines_and_overrides_old_json(self):
+        data = {'type': 'service_account', 'project_id': 'test', 'private_key': 'test\nkey\n'}
+        encoded = base64.b64encode(json.dumps(data).encode()).decode()
+        with patch.dict(os.environ, {'FIREBASE_SERVICE_ACCOUNT_BASE64': encoded,
+                                     'FIREBASE_SERVICE_ACCOUNT_JSON': 'invalid-old-value'}):
+            self.assertEqual(push.service_account_info(), data)
+
+    def test_raw_json_and_default_credentials_remain_supported(self):
+        with patch.dict(os.environ, {'FIREBASE_SERVICE_ACCOUNT_BASE64': '',
+                                     'FIREBASE_SERVICE_ACCOUNT_JSON': '{"type":"service_account"}'}):
+            self.assertEqual(push.service_account_info(), {'type': 'service_account'})
+        with patch.dict(os.environ, {'FIREBASE_SERVICE_ACCOUNT_BASE64': '', 'FIREBASE_SERVICE_ACCOUNT_JSON': ''}):
+            self.assertIsNone(push.service_account_info())
+
+    def test_invalid_credential_never_echoes_its_contents(self):
+        for value in ['private-content!}', base64.b64encode(b'not-json').decode(), base64.b64encode(b'[]').decode()]:
+            with patch.dict(os.environ, {'FIREBASE_SERVICE_ACCOUNT_BASE64': value}):
+                with self.assertRaises(ValueError) as caught:
+                    push.service_account_info()
+                self.assertNotIn(value, str(caught.exception))
+                self.assertIn('Invalid Firebase service-account configuration', str(caught.exception))
 
     def test_registration_is_owned_by_authenticated_account(self):
         app = FastAPI(); app.include_router(router)

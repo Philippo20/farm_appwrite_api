@@ -12,8 +12,13 @@ Firebase Analytics is not installed. Web and native desktop keep local notificat
 3. Configure these API environment variables:
    - `FCM_ENABLED=true`
    - `FIREBASE_PROJECT_ID=farmestatesltd-f8616`
-   - `FIREBASE_SERVICE_ACCOUNT_JSON`: the complete service-account JSON, entered
-     as an encrypted SECRET environment variable in the hosting dashboard.
+   - `FIREBASE_SERVICE_ACCOUNT_BASE64`: Base64 of the complete UTF-8 service-account
+     JSON, pasted as one line into an encrypted SECRET environment variable.
+     This avoids JSON punctuation/newline issues in the hosting editor. Base64
+     is encoding, not encryption: keep Encrypt enabled and never commit it.
+   `FIREBASE_SERVICE_ACCOUNT_JSON` (raw JSON) is also supported for existing setups.
+   Base64 takes precedence if both are configured; remove the unused raw JSON
+   variable to prevent confusion.
    Alternatively mount the key file and set `GOOGLE_APPLICATION_CREDENTIALS` to
    its path. Never commit this private key or include it in the Flutter APK.
 4. Redeploy the API. The Android app registers its token on login/resume and
