@@ -29,11 +29,13 @@ class PolicyTests(unittest.TestCase):
         self.assertEqual(events_for('Fund Requests', 'Update', request, {'purpose': 'New description'}), [])
         approved = events_for('Fund Requests', 'Update', request, {'status': 'Approved'})[0]
         self.assertEqual(approved['recipients'], {'manager'})
+        self.assertEqual(approved['kind'], 'fund_request')
         self.assertEqual(approved['roles'], set())
 
     def test_sensor_inclusive_boundaries_and_no_repeated_bad_readings(self):
         sensor = {'value': 10, 'range_min': 10, 'range_max': 30, 'alerts_enabled': True, 'farmID': 'f1'}
         self.assertEqual(sensor_band(sensor), 'normal')
+        self.assertEqual(events_for('Sensor readings', 'Update', sensor, {'value': 31})[0]['kind'], 'sensor_alert')
         self.assertEqual(sensor_band({**sensor, 'value': 30}), 'normal')
         self.assertEqual(len(events_for('Sensor readings', 'Update', sensor, {'value': 31})), 1)
         self.assertEqual(events_for('Sensor readings', 'Update', {**sensor, 'value': 31}, {'value': 32}), [])

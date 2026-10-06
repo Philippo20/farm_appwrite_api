@@ -19,7 +19,7 @@ def preferences_for(actor):
 def delivery_options(kind, preferences):
     key = {'message': 'chat_notifications', 'task': 'task_reminders',
            'maintenance': 'task_reminders', 'batch': 'task_reminders',
-           'harvest': 'task_reminders', 'issue': 'anomaly_alerts'}.get(kind)
+           'harvest': 'task_reminders', 'issue': 'anomaly_alerts', 'sensor_alert': 'anomaly_alerts'}.get(kind)
     return {'delivery_enabled': not preferences.get('delivery_unavailable', False)
             and (not key or preferences.get(key, True) is not False),
             'silent': preferences.get('sound_alerts', True) is False}

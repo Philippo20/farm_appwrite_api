@@ -41,7 +41,7 @@ def events_for(collection, action, previous, current):
             if band != 'normal' or previous_band in {'below range', 'above range'}:
                 event('Sensor recovered' if band == 'normal' else 'Sensor outside safe range',
                       f"{data.get('serial_number', 'Sensor')} on {data.get('farm_name', 'your farm')}: {band}.",
-                      'issue', roles=ADMIN_ROLES, farm=data.get('farmID', ''),
+                      'sensor_alert', roles=ADMIN_ROLES, farm=data.get('farmID', ''),
                       priority='normal' if band == 'normal' else 'high')
     elif collection == 'Device maintenance':
         from device_maintenance import plans_for
@@ -67,15 +67,15 @@ def events_for(collection, action, previous, current):
         if state != old.get('status'):
             if action == 'Create':
                 event('Fund request awaiting review', f"A new fund request for {data.get('farm_name', 'a farm')} needs review.",
-                      'financial', roles=ADMIN_ROLES | {'accountant'}, priority='high')
+                      'fund_request', roles=ADMIN_ROLES | {'accountant'}, priority='high')
             else:
                 event('Fund request updated', f"Request {data.get('request_id', '')} is now {state}.",
-                      'financial', recipients=[data.get('requested_by_id')])
+                      'fund_request', recipients=[data.get('requested_by_id')])
     elif collection == 'Wallet' and data.get('transaction_type') == 'Withdrawal':
         state = data.get('withdrawal_status')
         if state != old.get('withdrawal_status'):
             event('Withdrawal request' if action == 'Create' else 'Withdrawal updated',
-                  f"Withdrawal {data.get('transaction_id', '')} is {state}.", 'financial',
+                  f"Withdrawal {data.get('transaction_id', '')} is {state}.", 'withdrawal',
                   recipients=[data.get('user_id')],
                   roles=ADMIN_ROLES | {'accountant'} if action == 'Create' else ())
     elif collection == 'Farms':
@@ -85,7 +85,7 @@ def events_for(collection, action, previous, current):
                 event('Farm assignment', f"You have been assigned to {data.get('name', 'a farm')}.", recipients=[assigned])
     elif collection == 'Users':
         if action == 'Create':
-            event('New user account', 'A new user account has been created. Review its approval and farm assignments.', roles=ADMIN_ROLES)
+            event('New user account', 'A new user account has been created. Review its approval and farm assignments.', 'account_review', roles=ADMIN_ROLES)
         elif any(data.get(field) != old.get(field) for field in ('status', 'role')):
             event('Account updated', 'Your account role or approval status has changed.', recipients=[data.get('$id')])
     elif collection == 'Batches':
@@ -104,7 +104,7 @@ def events_for(collection, action, previous, current):
         state = stock_state(data)
         if state not in ('', 'available') and state != stock_state(old):
             event('Inventory needs attention', f"{data.get('item_name', 'An inventory item')} is {state}.",
-                  'inventory', roles=ADMIN_ROLES, farm=data.get('farm_id', ''), priority='high')
+                  'inventory_alert', roles=ADMIN_ROLES, farm=data.get('farm_id', ''), priority='high')
     return events
 
 

@@ -1,3 +1,4 @@
+from routes.live_workspace import router as live_workspace_router
 from routes.device_maintenance import router as device_maintenance_router
 from routes.light_switches import router as light_switch_router
 from fastapi import FastAPI, Header, HTTPException
@@ -64,6 +65,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(live_workspace_router)
 app.include_router(collection1_router)
 app.include_router(collection2_router)
 app.include_router(collection3_router)
