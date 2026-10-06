@@ -1,4 +1,5 @@
-import importlib
+import importlib.util
+from pathlib import Path
 import json
 import sys
 import types
@@ -50,9 +51,13 @@ class MessagingTests(unittest.TestCase):
                 "db": types.SimpleNamespace(db=None),
                 "auth": types.SimpleNamespace(get_user_client_from_jwt=lambda token: token)}
         with patch.dict(sys.modules, deps):
-            cls.module = importlib.import_module("routes.messaging")
+            spec = importlib.util.spec_from_file_location('isolated_messaging_routes', Path(__file__).parents[1] / 'routes/messaging.py')
+            cls.module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(cls.module)
 
     def setUp(self):
+        self.push = patch('push_notifications.queue_push').start()
+        self.addCleanup(patch.stopall)
         self.db = MemoryDB()
         self.module.db = self.db
         self.app = FastAPI()

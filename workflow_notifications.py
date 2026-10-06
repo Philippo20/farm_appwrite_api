@@ -141,6 +141,9 @@ def publish_event(key, event):
                 })
         except AppwriteException as error:
             if error.code != 409: raise
+        else:
+            from push_notifications import queue_push
+            queue_push(user['$id'], event.get('kind', 'system'), identifier)
 
 
 def notify_change(collection, action, previous=None, current=None):

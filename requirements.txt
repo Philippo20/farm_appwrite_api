@@ -7,3 +7,5 @@ bcrypt
 flask-cors==4.0.0
 APScheduler
 cryptography>=44.0.0
+
+firebase-admin>=7.0.0,<8.0.0

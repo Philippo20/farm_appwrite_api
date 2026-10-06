@@ -1,8 +1,9 @@
 # Notification event coverage
 
 The shared Flutter notification host delivers persisted recipient notifications
-locally on Android, Windows and supported web browsers. No Firebase project,
-push token or schema migration is required for these changes. Deploy the API
+locally on Android, Windows and supported web browsers. Android also supports
+FCM background delivery with the private push_devices registry and server
+credentials described in [Android push setup](android-push.md). Deploy the API
 and UI together: notification reads and read receipts now require the signed-in
 user's Bearer token and reject requests for other recipients.
 

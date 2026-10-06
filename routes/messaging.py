@@ -139,15 +139,20 @@ def send_message(peer_id: str, payload: MessageInput, actor=Depends(current_memb
     document_id = hashlib.sha256(f"{actor['$id']}|{payload.request_id}".encode()).hexdigest()[:36]
     data = {"conversation_id": _conversation(actor["$id"], peer_id),
             "sender_id": actor["$id"], "recipient_id": peer_id, "text": text, "read_at": ""}
+    created = False
     try:
         saved = db.create_document(database_id=db_id, collection_id=MESSAGES,
                                    document_id=document_id, data=data)
+        created = True
     except AppwriteException as error:
         if error.code != 409:
             raise
         saved = db.get_document(database_id=db_id, collection_id=MESSAGES, document_id=document_id)
         if any(saved.get(key) != data[key] for key in ("sender_id", "recipient_id", "text")):
             raise HTTPException(409, "This send request was already used for another message.")
+    if created:
+        from push_notifications import queue_push
+        queue_push(peer_id, 'message', 'message:' + saved['$id'], peer=actor['$id'])
     return _public_message(saved, actor["$id"])
 
 

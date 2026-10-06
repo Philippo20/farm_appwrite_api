@@ -47,6 +47,9 @@ def publish_reminders():
             except AppwriteException as error:
                 if error.code != 409:
                     raise
+            else:
+                from push_notifications import queue_push
+                queue_push(recipient, 'harvest' if kind == 'harvest' else 'batch', identifier)
 
 
 async def reminder_loop():
