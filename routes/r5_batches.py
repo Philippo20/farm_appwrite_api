@@ -1,4 +1,7 @@
 from farm_assignments import caretaker_ids
+from growing_groups import group_assignment
+from routes.messaging import current_member
+from fastapi import Depends
 import json
 from production_planning import validate_plan, schedule, batch_view
 from document_paging import list_all_documents
@@ -18,6 +21,7 @@ from main import (
 )
 from db import db
 from appwrite.id import ID
+from appwrite.query import Query
 from appwrite.input_file import InputFile
 from storage import st
 from audit_utils import write_audit
@@ -61,6 +65,9 @@ async def register_batch(
         caretaker_id: Annotated[str, Form()] = "",
         caretaker_name: Annotated[str, Form()] = "",
         harvest_images: Optional[UploadFile] = File(None),
+        growing_group_id: Annotated[Optional[str], Form()] = None,
+        growing_group_name: Annotated[str, Form()] = '',
+        actor: dict = Depends(current_member),
         ):
     now = datetime.now(timezone.utc).isoformat()
 
@@ -82,6 +89,9 @@ async def register_batch(
                 detail="The selected farm no longer exists.",
             ) from error
 
+        group_fields = group_assignment(growing_group_id, growing_group_name, farm, actor,
+            lambda identity: list_all_documents(db, database_id=db_id, collection_id=db_collection_id5,
+                queries=[Query.equal('growing_group_id', [identity])])['documents'])
         assigned_ids = caretaker_ids(farm)
         if not assigned_ids:
             raise HTTPException(
@@ -157,6 +167,7 @@ async def register_batch(
             data={
                 **({"production_plan": json.dumps(plan)} if plan else {}),
                 "batch_id": document_id,
+                **group_fields,
                 "batch_no": batch_no,
                 "farmID": farmID,
                 "farm_name": farm_name,
@@ -252,6 +263,9 @@ async def update_batch(
     updated_by: Annotated[str, Form()] = "system",
     updated_by_role: Annotated[str, Form()] = "farm_manager",
     harvest_images: Optional[UploadFile] = File(None),
+    growing_group_id: Annotated[Optional[str], Form()] = None,
+    growing_group_name: Annotated[str, Form()] = '',
+    actor: dict = Depends(current_member),
 ):
     try:
         previous = db.get_document(
@@ -261,6 +275,11 @@ async def update_batch(
         )
 
         update_data = {}
+        if growing_group_id is not None and growing_group_id != (previous.get('growing_group_id') or ''):
+            farm = db.get_document(db_id, db_collection_id2, previous['farmID'])
+            update_data.update(group_assignment(growing_group_id, growing_group_name, farm, actor,
+                lambda identity: list_all_documents(db, database_id=db_id, collection_id=db_collection_id5,
+                    queries=[Query.equal('growing_group_id', [identity])])['documents'], previous))
         if plant_variety is not None:
             update_data["plant_variety"] = plant_variety.strip()
         if start_date is not None:

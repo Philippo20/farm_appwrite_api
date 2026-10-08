@@ -98,6 +98,8 @@ class RouteTests(unittest.TestCase):
                  'audit_utils': types.SimpleNamespace(write_audit=Mock()), 'storage': types.SimpleNamespace(st=Mock())}):
                 spec.loader.exec_module(module)
             app.include_router(getattr(module, name))
+            if hasattr(module, 'current_member'):
+                app.dependency_overrides[module.current_member] = lambda: {'$id': 'manager', 'role': 'farm_manager'}
         self.client = TestClient(app)
         self.addCleanup(self.client.close)
 

@@ -1,4 +1,6 @@
 from farm_assignments import is_farm_caretaker
+import json
+from growing_groups import linked_entries, batch_record_view, batch_record_query
 from routes.messaging import current_member
 from user_roles import effective_profile
 from production_planning import record_growth_plan, growth_stage_at
@@ -97,10 +99,10 @@ def batch_caretaker_records(batch_id: str, limit: int = RequestQuery(100, ge=1, 
     if not can_review_records(effective_profile(profiles[0], actor.get('_active_role')), farm):
         raise HTTPException(403, 'You cannot review records for this farm')
     result = db.list_documents(db_id, db_collection_id24, queries=[
-        Query.equal('batch_id', [batch_id]), Query.equal('farm_id', [batch['farmID']]),
+        batch_record_query(batch_id), Query.equal('farm_id', [batch['farmID']]),
         Query.order_desc('record_date'), Query.order_desc('$id'),
         Query.limit(limit), Query.offset(offset)])
-    return {'documents': result.get('documents', []), 'total': result.get('total', 0)}
+    return {'documents': [batch_record_view(r, batch_id) for r in result.get('documents', [])], 'total': result.get('total', 0)}
 
 
 @collection24_router.get("/farm-records")
@@ -164,6 +166,7 @@ def create_farm_record(
     transplanted_count: Annotated[str, Form()] = "",
     harvested_count: Annotated[str, Form()] = "",
     harvest_weight_kg: Annotated[str, Form()] = "",
+    batch_entries: Annotated[str, Form()] = '',
     actor: dict = Depends(current_member),
 ):
     try:
@@ -173,6 +176,18 @@ def create_farm_record(
     if actor.get('role') != 'caretaker' or not is_farm_caretaker(farm, actor):
         raise HTTPException(403, 'You are not an assigned caretaker for this farm.')
     created_by, created_by_name = actor['$id'], actor.get('name', '')
+    group_id, entries = '', []
+    if batch_entries:
+        if any(str(v).strip() for v in (planted_count, transplanted_count, harvested_count, harvest_weight_kg, plant_count)):
+            raise HTTPException(422, 'Production totals must be recorded separately for each batch.')
+        group_id, entries = linked_entries(batch_entries, farm_id, batch_id, record_type, record_date,
+            lambda identity: db.get_document(db_id, db_collection_id5, identity),
+            lambda identity: db.get_document(db_id, db_collection_id3, identity), _ensure_batch_open)
+        has_issues = any(e['has_issues'] for e in entries)
+        affected = [e['batch_number'] for e in entries if e['has_issues']]
+        issue_description = ('Issues reported for: ' + ', '.join(affected) + '. See linked batch details.')[:225] if affected else ''
+        levels = list(IssueSeverity)
+        issue_severity = max((IssueSeverity(e['issue_severity']) for e in entries), key=lambda s: levels.index(s))
     if not farm_id.strip() or not farm_name.strip():
         raise HTTPException(status_code=400, detail="Farm is required")
     if has_issues and not issue_description.strip():
@@ -240,10 +255,11 @@ def create_farm_record(
                         detail="Batch progress values cannot be negative.",
                     )
                 batch_update[key] = value
-        if has_issues:
+        if has_issues and not entries:
             issue_summary = f"{issue_severity.value.title()}: {issue_description.strip()}"
             batch_update["technical_issues"] = issue_summary[:225]
-        batch_update["updated_at"] = _now()
+        if not entries:
+            batch_update["updated_at"] = _now()
 
     record_id = _record_code()
     now = _now()
@@ -270,6 +286,10 @@ def create_farm_record(
     }
 
     data.update(water_values)
+    if entries:
+        data.update(growing_group_id=group_id, growing_group_name=batch.get('growing_group_name', ''),
+                    linked_batch_ids=[e['batch_id'] for e in entries],
+                    batch_entries=json.dumps(entries, ensure_ascii=False))
     try:
         data.update(water_parameter_values(ph, ec))
     except ValueError as error:

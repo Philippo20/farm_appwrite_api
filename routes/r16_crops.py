@@ -7,6 +7,15 @@ from appwrite.id import ID
 from appwrite.input_file import InputFile
 from storage import st
 from audit_utils import write_audit
+from main import db_collection_id3
+from document_paging import list_all_documents
+from crop_relationships import crop_plant_link
+
+
+def _plant_link(identity, name, previous=None):
+    return crop_plant_link(identity, name,
+        lambda key: db.get_document(db_id, db_collection_id3, key),
+        lambda: list_all_documents(db, database_id=db_id, collection_id=db_collection_id3)['documents'], previous)
 
 
 collection16_router = APIRouter(tags=["Crops"])
@@ -65,13 +74,15 @@ async def register_crops_info(
     temp_max: Annotated[float, Form()],
     humidity_min: Annotated[float, Form()],
     humidity_max: Annotated[float, Form()],
-    created_by: Annotated[str, Form(...)]
+    created_by: Annotated[str, Form(...)],
+    plant_type_ID: Annotated[str, Form()] = '',
 ):
     if plant_duration_value <= 0:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="Plant duration must be greater than zero",
         )
+    link = _plant_link(plant_type_ID, crop_name)
     file_bytes = await crop_image.read()
     
     try:
@@ -93,7 +104,7 @@ async def register_crops_info(
             "crop_image_file_id": file_id,
             "crop_image_url": view_url,
             "crop_image_download_url": download_url,
-            "crop_name": crop_name,
+            **link,
             "variety_name": variety_name,
             "plant_duration_value": plant_duration_value,
             "plant_duration_unit": plant_duration_unit.value,
@@ -150,7 +161,7 @@ async def register_crops_info(
 @collection16_router.get("/crops")
 def get_all_crops():
     try:
-        result = db.list_documents(
+        result = list_all_documents(db,
             database_id=db_id,
             collection_id=db_collection_id16
         )
@@ -199,7 +210,8 @@ async def update_crops_info(
     temp_max: Annotated[float, Form()] = None,
     humidity_min: Annotated[float, Form()]= None,
     humidity_max: Annotated[float, Form()]= None,
-    created_by: Annotated[str, Form(...)]= None
+    created_by: Annotated[str, Form(...)]= None,
+    plant_type_ID: Annotated[str | None, Form()] = None,
 ):
     if plant_duration_value is not None and plant_duration_value <= 0:
         raise HTTPException(
@@ -211,7 +223,8 @@ async def update_crops_info(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="Plant duration value and unit must be updated together",
         )
-    update_data = {}
+    previous_crop = db.get_document(db_id, db_collection_id16, document_id)
+    update_data = _plant_link(plant_type_ID, crop_name or previous_crop.get('crop_name', ''), previous_crop)
     view_url = None
     download_url = None
 
@@ -234,7 +247,6 @@ async def update_crops_info(
 
     # Only include fields that were actually provided
     form_fields = {
-        "crop_name": crop_name,
         "variety_name": variety_name,
         "plant_duration_value": plant_duration_value,
         "plant_duration_unit": (
