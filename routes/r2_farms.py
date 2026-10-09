@@ -1,4 +1,5 @@
 from farm_assignments import requested_caretakers, validate_new_caretakers
+from farm_varieties import farm_variety_assignment
 from routes.messaging import current_member
 from document_paging import list_all_documents
 import secrets
@@ -7,7 +8,7 @@ from fastapi import APIRouter, Body, Depends, Form, HTTPException, status
 from typing import Annotated
 from enum import Enum
 from datetime import datetime, date
-from main import db_id, db_collection_id1, db_collection_id2
+from main import db_id, db_collection_id1, db_collection_id2, db_collection_id3, db_collection_id16
 from db import db
 from appwrite.id import ID
 from appwrite.query import Query
@@ -25,6 +26,13 @@ def _caretaker_assignment(raw, primary, previous=None):
     ids = requested_caretakers(raw, primary, previous)
     validate_new_caretakers(ids, previous, lambda identity: db.get_document(db_id, db_collection_id1, identity))
     return {'caretaker_ids': ids, 'caretakerID': ids[0] if ids else 'Unassigned'}
+
+
+def _variety_assignment(raw, identity, plant_name, primary, previous=None):
+    return farm_variety_assignment(raw, identity, plant_name, primary, previous,
+        lambda key: db.get_document(db_id, db_collection_id3, key),
+        lambda key: db.get_document(db_id, db_collection_id16, key),
+        lambda: list_all_documents(db, database_id=db_id, collection_id=db_collection_id3)['documents'])
 
 
 def _generate_sensor_key() -> str:
@@ -54,11 +62,14 @@ def register_farm(
         farm_manager_id: Annotated[str, Form()] = "Unassigned",
         technician_id: Annotated[str, Form()] = "Unassigned",
         caretaker_ids: Annotated[str | None, Form()] = None,
+        crop_variety_ids: Annotated[str | None, Form()] = None,
+        plant_type_ID: Annotated[str | None, Form()] = None,
         actor: dict = Depends(current_member)
         ):
     
     _check_farm_manager(actor)
     assignment = _caretaker_assignment(caretaker_ids, caretakerID)
+    varieties = _variety_assignment(crop_variety_ids, plant_type_ID, plant_type, plant_variety)
     # Ensure farm info with name and caretakerID combined does not exist
     existing = db.list_documents(
         database_id=db_id,
@@ -82,6 +93,7 @@ def register_farm(
         "technician_id": technician_id,
         "plant_type": plant_type,
         "plant_variety": plant_variety,
+        **varieties,
         "tier_type": tier_type,
         "status": status,
         "sensor_ingest_api_key": _generate_sensor_key(),
@@ -154,6 +166,8 @@ def update_farm(
     farm_manager_id: Annotated[str, Form()] = "Unassigned",
     technician_id: Annotated[str, Form()] = "Unassigned",
     caretaker_ids: Annotated[str | None, Form()] = None,
+    crop_variety_ids: Annotated[str | None, Form()] = None,
+    plant_type_ID: Annotated[str | None, Form()] = None,
     actor: dict = Depends(current_member)):
     _check_farm_manager(actor)
 
@@ -164,6 +178,7 @@ def update_farm(
             document_id=farm_id
         )
         assignment = _caretaker_assignment(caretaker_ids, caretakerID, previous_farm)
+        varieties = _variety_assignment(crop_variety_ids, plant_type_ID, plant_type, plant_variety, previous_farm)
         update_data = {"name": name,
                   "location": location,
                   "ownerID": ownerID,
@@ -172,6 +187,7 @@ def update_farm(
                   "technician_id": technician_id,
                   "plant_type": plant_type,
                   "plant_variety": plant_variety,
+                  **varieties,
                   "tier_type": tier_type,
                   "status": status
             }

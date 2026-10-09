@@ -1,4 +1,5 @@
 from farm_assignments import caretaker_ids
+from farm_varieties import assigned_batch_variety
 from growing_groups import group_assignment
 from routes.messaging import current_member
 from fastapi import Depends
@@ -15,6 +16,7 @@ from main import (
     db_collection_id2,
     db_collection_id3,
     db_collection_id5,
+    db_collection_id16,
     bucket_id,
     project_id,
     appwrite_endpoint,
@@ -67,6 +69,7 @@ async def register_batch(
         harvest_images: Optional[UploadFile] = File(None),
         growing_group_id: Annotated[Optional[str], Form()] = None,
         growing_group_name: Annotated[str, Form()] = '',
+        crop_variety_id: Annotated[Optional[str], Form()] = None,
         actor: dict = Depends(current_member),
         ):
     now = datetime.now(timezone.utc).isoformat()
@@ -137,6 +140,9 @@ async def register_batch(
         farm_name = str(farm.get("name") or farm_name).strip()
         plant_name = str(plant_type.get("name") or plant_name).strip()
 
+        variety_fields = assigned_batch_variety(farm, plant_type_ID, plant_name, plant_variety, crop_variety_id,
+            lambda identity: db.get_document(db_id, db_collection_id16, identity))
+
         plan = validate_plan(plant_type.get("production_plan"))
         if plan:
             end_date = date.fromisoformat(schedule(plan, start_date)["expected_harvest"])
@@ -174,6 +180,7 @@ async def register_batch(
                 "plant_type_ID": plant_type_ID,
                 "plant_name": plant_name,
                 "plant_variety": plant_variety,
+                **variety_fields,
                 "farm_manager_id": farm_manager_id,
                 "farm_manager_name": farm_manager_name,
                 "caretaker_id": caretaker_id,
@@ -265,6 +272,7 @@ async def update_batch(
     harvest_images: Optional[UploadFile] = File(None),
     growing_group_id: Annotated[Optional[str], Form()] = None,
     growing_group_name: Annotated[str, Form()] = '',
+    crop_variety_id: Annotated[Optional[str], Form()] = None,
     actor: dict = Depends(current_member),
 ):
     try:
@@ -282,6 +290,12 @@ async def update_batch(
                     queries=[Query.equal('growing_group_id', [identity])])['documents'], previous))
         if plant_variety is not None:
             update_data["plant_variety"] = plant_variety.strip()
+        if ((plant_variety is not None and plant_variety.strip() != previous.get('plant_variety')) or
+                (crop_variety_id is not None and crop_variety_id != previous.get('crop_variety_id'))):
+            farm = db.get_document(db_id, db_collection_id2, previous['farmID'])
+            update_data.update(assigned_batch_variety(farm, previous.get('plant_type_ID', ''),
+                previous.get('plant_name', ''), plant_variety or previous.get('plant_variety', ''), crop_variety_id,
+                lambda identity: db.get_document(db_id, db_collection_id16, identity)))
         if start_date is not None:
             update_data["start_date"] = start_date.isoformat()
         if end_date is not None:

@@ -82,7 +82,7 @@ class RouteTests(unittest.TestCase):
         self.plant = {'$id': 'plant', 'name': 'Lettuce', 'production_plan': json.dumps(PLAN)}
         self.saved = batch()
         self.main = types.SimpleNamespace(db_id='db', db_collection_id1='users', db_collection_id2='farms',
-            db_collection_id3='plants', db_collection_id5='batches', bucket_id='bucket', project_id='project',
+            db_collection_id3='plants', db_collection_id5='batches', db_collection_id16='crops', bucket_id='bucket', project_id='project',
             appwrite_endpoint='https://example.test', db_collection_id25='notifications')
         def get(**kw):
             return {'plants': self.plant, 'farms': {'name': 'Farm', 'caretakerID': 'care'},

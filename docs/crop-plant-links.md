@@ -10,9 +10,9 @@ linked variety can retain its existing inactive parent. The API stores the
 selected plant's current name in the legacy `crop_name` field for compatibility.
 The ID remains the authoritative link when a plant is renamed.
 
-Farm and batch variety selectors use this relationship. A farm keeps its
-existing default variety; separate batches on that farm can use other matching
-varieties. This does not add a multiple-variety field to the farm record.
+Farm and batch variety selectors use this relationship. Admin and Super Admin
+can select multiple varieties belonging to the farm's plant type. Each batch
+chooses one of those assigned varieties. See [farm variety assignments](multiple-farm-varieties.md).
 
 Run `python setup_crop_plant_links.py` before deploying the updated API.
 The migration creates the optional string attribute and links legacy varieties
