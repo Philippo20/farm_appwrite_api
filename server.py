@@ -1,3 +1,5 @@
+from routes.maintenance_reminders import router as maintenance_reminders_router
+from routes.personal_appearance import router as personal_appearance_router
 from routes.push_devices import router as push_router
 from routes.live_workspace import router as live_workspace_router
 from routes.device_maintenance import router as device_maintenance_router
@@ -66,6 +68,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(maintenance_reminders_router)
+app.include_router(personal_appearance_router)
 app.include_router(push_router)
 app.include_router(live_workspace_router)
 app.include_router(collection1_router)
