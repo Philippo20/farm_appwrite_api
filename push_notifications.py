@@ -79,7 +79,7 @@ def unregister(token, actor):
             raise
 
 
-def queue_push(recipient, kind, event_id, peer=None):
+def queue_push(recipient, kind, event_id, peer=None, *, title='', body=''):
     if not enabled():
         return
     if not _slots.acquire(blocking=False):
@@ -87,7 +87,7 @@ def queue_push(recipient, kind, event_id, peer=None):
         return
     def run():
         try:
-            send_push(recipient, kind, event_id, peer)
+            send_push(recipient, kind, event_id, peer, title=title, body=body)
         except Exception as error:
             # Do not log device tokens, credential contents, or SDK request payloads.
             log.warning('Push delivery failed (%s); notification remains in the inbox', type(error).__name__)
@@ -100,7 +100,14 @@ def queue_push(recipient, kind, event_id, peer=None):
         log.warning('Push worker unavailable; notification remains in the inbox')
 
 
-def send_push(recipient, kind, event_id, peer=None):
+def _preview(value, max_bytes):
+    """FCM's data limit is measured in bytes, including multibyte message text."""
+    text = str(value or '')
+    encoded = text.encode('utf-8')
+    return text if len(encoded) <= max_bytes else encoded[:max_bytes - 3].decode('utf-8', errors='ignore') + '…'
+
+
+def send_push(recipient, kind, event_id, peer=None, *, title='', body=''):
     from firebase_admin import messaging
     actor = db.get_document(database_id=db_id, collection_id=db_collection_id1, document_id=recipient)
     if str(actor.get('status', '')).lower() != 'active':
@@ -124,6 +131,7 @@ def send_push(recipient, kind, event_id, peer=None):
             'recipientId': recipient, 'eventId': event_id,
             'peerId': peer or '__inbox__:' + event_id,
             'silent': str(options['silent']).lower(),
+            'title': _preview(title, 300), 'body': _preview(body, 2400),
         }, android=messaging.AndroidConfig(priority='high', ttl=timedelta(hours=24)))
         try:
             messaging.send(message, app=firebase_app())

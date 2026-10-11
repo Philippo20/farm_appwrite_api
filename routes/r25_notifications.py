@@ -48,7 +48,7 @@ def create_notification(
     )
 
     from push_notifications import queue_push
-    queue_push(recipient_id, notification_type, saved['$id'])
+    queue_push(recipient_id, notification_type, saved['$id'], title=title, body=message)
     queue_notification_email(recipient_id, title, message, notification_type)
     return saved
 

@@ -149,7 +149,8 @@ def publish_event(key, event):
             if error.code != 409: raise
         else:
             from push_notifications import queue_push
-            queue_push(user['$id'], event.get('kind', 'system'), identifier)
+            queue_push(user['$id'], event.get('kind', 'system'), identifier,
+                       title=event['title'], body=event['message'])
 
 
 def notify_change(collection, action, previous=None, current=None):

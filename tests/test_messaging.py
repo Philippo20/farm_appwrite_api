@@ -107,6 +107,8 @@ class MessagingTests(unittest.TestCase):
     def test_notifications_are_private_persistent_and_deduplicated(self):
         saved = self.send().json()
         self.send()  # A retried send must not create a second alert.
+        self.push.assert_called_once_with('bob', 'message', 'message:' + saved['id'],
+                                          peer='alice', title='alice', body='Hello')
         self.assertEqual(self.client.get("/messages/notifications").json()["notifications"], [])
         self.actor("eve")
         self.assertEqual(self.client.get("/messages/notifications").json()["notifications"], [])

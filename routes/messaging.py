@@ -154,7 +154,8 @@ def send_message(peer_id: str, payload: MessageInput, actor=Depends(current_memb
             raise HTTPException(409, "This send request was already used for another message.")
     if created:
         from push_notifications import queue_push
-        queue_push(peer_id, 'message', 'message:' + saved['$id'], peer=actor['$id'])
+        queue_push(peer_id, 'message', 'message:' + saved['$id'], peer=actor['$id'],
+                   title=actor.get('name', 'Team member'), body=saved['text'])
     return _public_message(saved, actor["$id"])
 
 

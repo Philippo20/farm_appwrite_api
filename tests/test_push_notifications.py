@@ -69,7 +69,7 @@ class PushTests(unittest.TestCase):
             push.queue_push('alice', 'task', 'id')
             pool.submit.assert_not_called()
 
-    def test_private_payload_and_recipient_filter(self):
+    def test_preview_payload_and_recipient_filter(self):
         from firebase_admin import messaging
         self.db.get_document.return_value = self.actor
         devices = [{'recipient_id': 'alice', 'token': self.token, '$id': 'd1', 'updated_at': datetime.now(timezone.utc).isoformat()},
@@ -77,12 +77,28 @@ class PushTests(unittest.TestCase):
         with patch.object(push, 'list_all_documents', return_value={'documents': devices}), \
              patch.object(push, 'preferences_for', return_value={'sound_alerts': False}), \
              patch.object(push, 'firebase_app', return_value=Mock()), patch.object(messaging, 'send') as send:
-            push.send_push('alice', 'task', 'notice')
+            push.send_push('alice', 'task', 'notice', title='Maintenance due', body='Clean the pH sensor.')
         message = send.call_args.args[0]
-        self.assertEqual(message.data, {'recipientId': 'alice', 'eventId': 'notice', 'peerId': '__inbox__:notice', 'silent': 'true'})
+        self.assertEqual(message.data, {'recipientId': 'alice', 'eventId': 'notice', 'peerId': '__inbox__:notice', 'silent': 'true', 'title': 'Maintenance due', 'body': 'Clean the pH sensor.'})
         self.assertIsNone(message.notification)
         self.assertEqual(message.android.priority, 'high')
         send.assert_called_once()
+
+    def test_long_unicode_preview_fits_fcm_without_splitting_characters(self):
+        from firebase_admin import messaging
+        self.db.get_document.return_value = self.actor
+        with patch.object(push, 'list_all_documents', return_value={'documents': [
+            {'$id': 'device', 'recipient_id': 'alice', 'token': self.token, 'updated_at': datetime.now(timezone.utc).isoformat()}]}), \
+             patch.object(push, 'preferences_for', return_value={}), patch.object(push, 'firebase_app', return_value=Mock()), \
+             patch.object(messaging, 'send') as send:
+            push.send_push('alice', 'message', 'message:id', 'bob', title='🌱' * 225, body='🌿' * 4000)
+        data = send.call_args.args[0].data
+        self.assertLess(len(json.dumps(data, ensure_ascii=False).encode('utf-8')), 4096)
+        self.assertTrue(data['body'].endswith('…'))
+        self.assertNotIn('\ufffd', data['body'])
+
+    def test_short_message_is_not_truncated(self):
+        self.assertEqual(push._preview('Water pH is 6.2 🌱', 2400), 'Water pH is 6.2 🌱')
 
     def test_muted_and_inactive_users_are_not_sent_push(self):
         from firebase_admin import messaging

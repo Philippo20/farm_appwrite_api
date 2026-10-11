@@ -33,12 +33,21 @@ The Android google-services.json contains client configuration, not the private 
 
 Newly persisted messages, workflow notifications and production reminders enqueue
 FCM data messages. Background Android code checks the recipient and displays a
-private generic notification. Taps reuse the app's authenticated notification/chat
+notification with the sender/title and actual message preview. Previews are
+bounded by UTF-8 byte length to fit FCM's data limit; full text remains in the
+database. Android shows a generic public lock-screen version. Taps reuse the app's authenticated notification/chat
 navigation. Foreground alerts continue through the existing poller; delivered event
 IDs prevent a second alert on resume. Signing out clears the native recipient and
 attempts to unregister the device. Account switching rebinds that installation.
 Invalid FCM tokens are removed; bindings unused for 30 days are skipped until renewed.
 Caretaker notification/sound preferences are applied by the server before delivery.
+
+Android chat notifications also support direct Reply without opening the app.
+Replies call the existing authenticated `/messages/conversations/{peer_id}`
+endpoint, with its existing request-ID idempotency and account-access checks.
+No new public reply endpoint or database migration is required. Install the
+matching APK and deploy this API update together. Test reply success, offline
+retry, long Unicode content, expired credentials and account switching.
 
 FCM requires Google Play services and network access. Permission denial, force-stop,
 manufacturer restrictions and FCM throttling can prevent immediate delivery. The
