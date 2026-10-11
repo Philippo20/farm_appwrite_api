@@ -5,7 +5,10 @@ from enum import Enum
 from typing import Annotated, Optional
 
 from appwrite.id import ID
-from fastapi import APIRouter, Form, HTTPException, status as http_status
+from fastapi import APIRouter, Depends, Form, HTTPException, Request, status as http_status
+from appwrite.exception import AppwriteException
+from routes.messaging import current_member
+from main import db_collection_id6
 
 from audit_utils import write_audit
 from db import db
@@ -311,26 +314,45 @@ def update_farm_task(
 
 
 @collection23_router.delete("/farm-tasks/{task_doc_id}")
-def delete_farm_task(task_doc_id: str):
+def delete_farm_task(task_doc_id: str, request: Request, actor=Depends(current_member)):
+    if actor.get("role") not in {"admin", "superadmin"}:
+        raise HTTPException(403, "Only administrators can delete farm tasks.")
     try:
         previous = db.get_document(
             database_id=db_id,
             collection_id=db_collection_id23,
             document_id=task_doc_id,
         )
-        db.delete_document(
-            database_id=db_id,
-            collection_id=db_collection_id23,
-            document_id=task_doc_id,
-        )
-        write_audit(
+        # Persist the actor and task identity before destructive work. If audit
+        # storage is unavailable the task remains intact.
+        audit_id = write_audit(
             action_type="Delete",
             collection_name="Farm Tasks",
-            performed_by_id=previous.get("assigned_by_name", previous.get("assigned_by_id", "system")),
-            performed_by_role="farm_manager",
-            action_details=f"Deleted task {previous.get('task_id', task_doc_id)}",
-            previous_data=previous,
+            performed_by_id=actor["$id"],
+            performed_by_role=actor["role"],
+            action_details=f"Delete task {previous.get('task_id', task_doc_id)}: {previous.get('title', '')}",
+            ip_address=request.client.host if request.client else "-",
+            previous_data={"id": task_doc_id, "task": previous.get("task_id"),
+                           "title": previous.get("title"), "farm": previous.get("farm_name"),
+                           "assignee": previous.get("assigned_to_id"), "status": previous.get("status")},
+            status="Pending", strict=True,
         )
+        if not audit_id:
+            raise HTTPException(503, "Unable to record the deletion. The task was not deleted.")
+        try:
+            db.delete_document(database_id=db_id, collection_id=db_collection_id23,
+                               document_id=task_doc_id)
+        except Exception:
+            db.update_document(database_id=db_id, collection_id=db_collection_id6,
+                               document_id=audit_id, data={"status": "Failed"})
+            raise
+        audit_pending = False
+        try:
+            db.update_document(database_id=db_id, collection_id=db_collection_id6,
+                               document_id=audit_id, data={"status": "Success"})
+        except Exception:
+            # The durable Pending entry still identifies the deletion attempt.
+            audit_pending = True
         assigned_to_id = previous.get("assigned_to_id", "")
         assigned_by_id = previous.get("assigned_by_id", "")
         if assigned_to_id and assigned_to_id != assigned_by_id:
@@ -349,6 +371,13 @@ def delete_farm_task(task_doc_id: str):
                 )
             except Exception:
                 pass
-        return {"message": f"Farm task {task_doc_id} deleted successfully"}
+        return {"message": "Task deleted." if not audit_pending else
+                "Task deleted. Its audit entry is pending confirmation.", "audit_pending": audit_pending}
+    except HTTPException:
+        raise
+    except AppwriteException as error:
+        if error.code == 404:
+            raise HTTPException(404, "Task not found.") from error
+        raise HTTPException(503, "Could not delete the task. Try again.") from error
     except Exception as error:
-        raise HTTPException(status_code=500, detail=str(error))
+        raise HTTPException(503, "Could not delete the task. Try again.") from error

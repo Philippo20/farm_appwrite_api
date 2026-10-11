@@ -4,6 +4,9 @@ from appwrite.services.databases import Databases
 
 db = Databases(client)
 
+db.create_string_attribute(database_id=db_id, collection_id=db_collection_id7,
+    key="farm_purchase", size=4096, required=False)
+
 # define attributes
 result = db.create_string_attribute(
     database_id= db_id,

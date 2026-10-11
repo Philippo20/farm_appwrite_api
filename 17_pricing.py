@@ -4,6 +4,9 @@ from appwrite.services.databases import Databases
 
 db = Databases(client)
 
+db.create_enum_attribute(database_id=db_id, collection_id=db_collection_id17,
+    key="owner_price_tier", elements=["Regular", "Bulk"], required=False, default="Regular")
+
 result = db.create_string_attribute(
     database_id= db_id,
     collection_id= db_collection_id17,

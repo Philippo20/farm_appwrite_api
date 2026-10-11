@@ -44,9 +44,10 @@ def write_audit(
     ip_address: str = "-",
     previous_data: Any = None,
     new_data: Any = None,
-) -> None:
+    strict: bool = False,
+) -> str | None:
     try:
-        db.create_document(
+        saved = db.create_document(
             database_id=db_id,
             collection_id=db_collection_id6,
             document_id=ID.unique(),
@@ -65,8 +66,12 @@ def write_audit(
             },
         )
     except Exception as error:
+        if strict:
+            raise
         print(f"Audit write failed: {error}")
+        return None
 
     if status == "Success":
         from workflow_notifications import notify_change
         notify_change(collection_name, action_type, previous_data, new_data)
+    return saved.get("$id")

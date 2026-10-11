@@ -1,5 +1,6 @@
 from user_roles import assigned_roles, has_role
 from document_paging import list_all_documents
+from farm_purchase import capture_purchase
 from fastapi import APIRouter, Form, HTTPException, status
 from typing import Annotated
 import json
@@ -101,15 +102,17 @@ def _batch_number(batch):
 
 def _find_fulfillment_for_batch(batch_number):
     normalized = batch_number.casefold()
-    result = db.list_documents(
+    result = list_all_documents(db,
         database_id=db_id,
         collection_id=db_collection_id7,
     )
+    return next((item for item in result.get("documents", [])
+        if str(item.get("batch_number") or "").strip().casefold() == normalized), None)
 
 
 def _find_batch_by_number(batch_number):
     normalized = batch_number.casefold()
-    result = db.list_documents(
+    result = list_all_documents(db,
         database_id=db_id,
         collection_id=db_collection_id5,
     )
@@ -118,14 +121,6 @@ def _find_batch_by_number(batch_number):
             item
             for item in result.get("documents", [])
             if _batch_number(item).casefold() == normalized
-        ),
-        None,
-    )
-    return next(
-        (
-            item
-            for item in result.get("documents", [])
-            if str(item.get("batch_number") or "").strip().casefold() == normalized
         ),
         None,
     )
@@ -436,6 +431,7 @@ def inspect_harvest_intake(batch_id: str, payload: HarvestInspectionPayload):
             "delivery_note": payload.notes.strip(),
         }
 
+        inspection_data.update(capture_purchase(db, inspection_data, existing, batch))
         if existing is None:
             inspection_data["fulfillment_id"] = ID.unique()
             saved = db.create_document(
@@ -898,7 +894,7 @@ def register_fulfillment(
     }
     if audits_info["scheduled_date"] is None:
         audits_info.pop("scheduled_date")
-    print(audits_info)
+    audits_info.update(capture_purchase(db, audits_info))
 
     fulfillment_create = db.create_document(
         database_id= db_id,
@@ -1082,6 +1078,7 @@ def update_fulfillment(fulfillment_id:str,
         if update_data["scheduled_date"] is None:
             update_data.pop("scheduled_date")
         # Perform update
+        update_data.update(capture_purchase(db, update_data, previous_fulfillment))
         updated_farm_info = db.update_document(
             database_id=db_id,
             collection_id=db_collection_id7,
@@ -1100,6 +1097,8 @@ def update_fulfillment(fulfillment_id:str,
         )
         return {"message": "Fulfillments info updated successfully", "user": updated_farm_info}
 
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Update failed: {e}")
     
