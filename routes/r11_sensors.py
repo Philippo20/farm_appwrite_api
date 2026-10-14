@@ -1,4 +1,6 @@
 import json
+from device_commands import serialize_commands
+from document_paging import list_all_documents
 from sensor_capabilities import with_sensor_capabilities, maintenance_values, sensor_maintenance_required
 from fastapi import Query as ApiQuery
 import os
@@ -31,6 +33,7 @@ class SensorType(str, Enum):
     CO2 = "Carbon Dioxide"
     LIGHT = "light"
     LIGHT_SWITCH = "light_switch"
+    COMMAND_DEVICE = "command_device"
     PH_LEVEL = "pH Level"
     EC_LEVEL = "EC Level"
     WATER_LEVEL = "Water level"
@@ -66,6 +69,7 @@ def _sensor_document_payload(
     warning_min: Optional[float] = None,
     warning_max: Optional[float] = None,
     maintenance_plan: Optional[list] = None,
+    command_config: Optional[str] = None,
 ) -> dict:
     try:
         maintenance = ({'maintenance_frequency': 'Per task' if maintenance_plan else 'Not required',
@@ -90,13 +94,18 @@ def _sensor_document_payload(
     }
     if maintenance_plan is not None:
         data['maintenance_plan'] = json.dumps(maintenance_plan)
-    if range_min is not None:
+    if sensortype == 'command_device':
+        data.update(command_config=serialize_commands(command_config), value=0, unit='command',
+                    alerts_enabled=False, range_min=None, range_max=None, warning_min=None, warning_max=None)
+    elif command_config is not None:
+        data['command_config'] = ''
+    if range_min is not None and sensortype != 'command_device':
         data["range_min"] = range_min
-    if range_max is not None:
+    if range_max is not None and sensortype != 'command_device':
         data["range_max"] = range_max
-    if warning_min is not None:
+    if warning_min is not None and sensortype != 'command_device':
         data["warning_min"] = warning_min
-    if warning_max is not None:
+    if warning_max is not None and sensortype != 'command_device':
         data["warning_max"] = warning_max
     return data
 
@@ -160,7 +169,7 @@ def _record_sensor_reading(
     timestamp: str,
     source: str,
 ) -> None:
-    if not db_collection_id21:
+    if sensortype == 'command_device' or not db_collection_id21:
         return
     try:
         db.create_document(
@@ -259,8 +268,14 @@ def register_sensors_info(
         range_max: Annotated[Optional[float], Form()] = None,
         warning_min: Annotated[Optional[float], Form()] = None,
         warning_max: Annotated[Optional[float], Form()] = None,
-        serial_number: Annotated[Optional[str], Form()] = None
+        serial_number: Annotated[Optional[str], Form()] = None,
+        command_config: Annotated[Optional[str], Form()] = None,
+        authorization: Annotated[Optional[str], Header()] = None,
+        x_active_role: Annotated[Optional[str], Header()] = None,
         ):
+    if sensortype == SensorType.COMMAND_DEVICE:
+        _command_admin(authorization, x_active_role)
+        command_config = serialize_commands(command_config)
     
     # A farm can have many sensors; serial number is the device-level unique key.
     serial_number = (serial_number or "").strip() or _next_sensor_serial_number(
@@ -300,6 +315,7 @@ def register_sensors_info(
         range_max=range_max,
         warning_min=warning_min,
         warning_max=warning_max,
+        command_config=command_config,
     )
 
     sensor_create = db.create_document(
@@ -335,7 +351,7 @@ def get_sensor_info(sensors_id:str):
             collection_id= db_collection_id11,
             document_id= sensors_id
         )
-        return with_sensor_capabilities(user)
+        return _sensor_view(user)
     except Exception as e:
         raise HTTPException(
             status_code=http_status.HTTP_404_NOT_FOUND,
@@ -394,16 +410,25 @@ def get_sensor_readings_by_serial(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+def _sensor_view(sensor):
+    result = with_sensor_capabilities(sensor)
+    if sensor.get('sensortype') == 'command_device':
+        from routes.light_switches import get_doc, key
+        heartbeat = get_doc(key('j', sensor['$id']))
+        # Presence is a board poll, never a manually entered numeric reading.
+        result['timestamp'] = (heartbeat or {}).get('seen_at') or '1970-01-01T00:00:00+00:00'
+    return result
+
 @collection11_router.get("/sensors")
 def get_all_sensors():
     try:
-        result = db.list_documents(
+        result = list_all_documents(db,
             database_id=db_id,
             collection_id=db_collection_id11
         )
 
         # Extract the list of users
-        sensor_users = [with_sensor_capabilities(sensor) for sensor in result["documents"]]
+        sensor_users = [_sensor_view(sensor) for sensor in result["documents"]]
 
         return {
             "count": len(sensor_users),
@@ -420,6 +445,8 @@ def ingest_sensor_reading(
     x_sensor_key: Annotated[Optional[str], Header(alias="x-sensor-key")] = None,
 ):
     serial_number = str(payload.get("serial_number", "")).strip()
+    if payload.get('sensortype') == 'command_device':
+        raise HTTPException(422, 'Command devices use their authenticated poll and acknowledgement endpoints.')
     if not serial_number:
         raise HTTPException(status_code=400, detail="serial_number is required")
 
@@ -442,6 +469,8 @@ def ingest_sensor_reading(
 
     if existing["total"] > 0:
         sensor = existing["documents"][0]
+        if sensor.get('sensortype') == 'command_device':
+            raise HTTPException(422, 'Command devices do not accept numeric sensor readings.')
         farm_id = str(payload.get("farmID") or sensor.get("farmID") or "").strip()
         _validate_sensor_key(x_sensor_key, farm_id)
         status_value = str(payload.get("status") or _sensor_status_for_value(value, payload, sensor))
@@ -588,7 +617,10 @@ def update_sensor(
     range_max: Annotated[Optional[float], Form()] = None,
     warning_min: Annotated[Optional[float], Form()] = None,
     warning_max: Annotated[Optional[float], Form()] = None,
-    serial_number: Annotated[Optional[str], Form()] = None
+    serial_number: Annotated[Optional[str], Form()] = None,
+    command_config: Annotated[Optional[str], Form()] = None,
+    authorization: Annotated[Optional[str], Header()] = None,
+    x_active_role: Annotated[Optional[str], Header()] = None,
     ):
     
     timestamp = datetime.now(timezone.utc).isoformat()
@@ -599,6 +631,12 @@ def update_sensor(
             collection_id=db_collection_id11,
             document_id=sensors_id,
         )
+        if sensortype == SensorType.COMMAND_DEVICE or previous_sensor.get('sensortype') == 'command_device':
+            _command_admin(authorization, x_active_role)
+            if sensortype == SensorType.COMMAND_DEVICE:
+                command_config = serialize_commands(command_config if command_config is not None else previous_sensor.get('command_config'))
+            else:
+                command_config = ''
         resolved_serial_number = (
             (serial_number or "").strip()
             or str(previous_sensor.get("serial_number") or "").strip()
@@ -622,6 +660,7 @@ def update_sensor(
             range_max=range_max,
             warning_min=warning_min,
             warning_max=warning_max,
+            command_config=command_config,
         )
 
         updated_sensor_info = db.update_document(
@@ -645,16 +684,31 @@ def update_sensor(
         )
         return {"message": "Sensor info updated successfully", "user": updated_sensor_info}
 
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Update failed: {e}")
     
 @collection11_router.delete("/sensors/{sensors_id}")
-def delete_sensor(sensors_id:str):
+def delete_sensor(sensors_id:str, authorization: Annotated[Optional[str], Header()] = None,
+                  x_active_role: Annotated[Optional[str], Header()] = None):
     try:
+        previous = db.get_document(database_id=db_id, collection_id=db_collection_id11, document_id=sensors_id)
+        if previous.get('sensortype') == 'command_device':
+            _command_admin(authorization, x_active_role)
         db.delete_document(
             database_id=db_id,
             collection_id=db_collection_id11, 
             document_id=sensors_id)
         return {"message": f"User with ID {sensors_id} deleted successfully"}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+def _command_admin(authorization, selected_role):
+    from routes.messaging import current_member
+    actor = current_member(authorization or '', selected_role)
+    if actor.get('role') not in {'admin', 'superadmin'}:
+        raise HTTPException(403, 'Only administrators can configure command devices.')
+    return actor

@@ -73,6 +73,7 @@ class Device(BaseModel):
     unit: str = Field(default='', max_length=225)
     status: Literal['Active', 'Inactive', 'Faulty', 'Maintenance'] = 'Active'
     alerts_enabled: bool = True
+    command_config: str | None = None
     range_min: float | None = None
     range_max: float | None = None
     warning_min: float | None = None
@@ -109,6 +110,9 @@ def prepare_plans(submitted, previous, profile, farm):
 def save_device(body, profile, device_id=None):
     from routes.r11_sensors import SensorType, _sensor_document_payload, _next_sensor_serial_number
     previous = device_for(profile, device_id)[0] if device_id else None
+    if body.sensortype == 'command_device' or (previous or {}).get('sensortype') == 'command_device':
+        if profile.get('role') not in {'admin', 'superadmin'}:
+            raise HTTPException(403, 'Only administrators can configure command devices.')
     farm = authorized_farm(profile, body.farmID)
     if previous and previous['farmID'] != body.farmID:
         raise HTTPException(422, 'Keep this device on its registered farm to preserve its maintenance history.')
@@ -122,7 +126,7 @@ def save_device(body, profile, device_id=None):
             raise HTTPException(422, 'The low limit must not exceed the high limit.')
     if not body.model_number.strip() or not body.location.strip():
         raise HTTPException(422, 'Device name and location are required.')
-    plans = prepare_plans(body.plans, previous, profile, farm)
+    plans = [] if body.sensortype == 'command_device' else prepare_plans(body.plans, previous, profile, farm)
     serial = body.serial_number.strip() or (previous or {}).get('serial_number') or _next_sensor_serial_number(body.farmID, farm['name'])
     duplicates = rows(db_collection_id11, [Query.equal('serial_number', [serial])])
     if any(item['$id'] != device_id for item in duplicates):
@@ -134,9 +138,10 @@ def save_device(body, profile, device_id=None):
         timestamp=(previous or {}).get('timestamp') or datetime.now(timezone.utc).isoformat(),
         last_maintenance_date=(previous or {}).get('last_maintenance_date'),
         range_min=body.range_min, range_max=body.range_max, warning_min=body.warning_min, warning_max=body.warning_max,
-        maintenance_plan=plans)
+        maintenance_plan=plans,
+        command_config=body.command_config if body.command_config is not None else (previous or {}).get('command_config'))
     # Allow clearing a limit, while preserving telemetry and heartbeat on edits.
-    for key in ('range_min', 'range_max', 'warning_min', 'warning_max'):
+    for key in (() if body.sensortype == 'command_device' else ('range_min', 'range_max', 'warning_min', 'warning_max')):
         data[key] = getattr(body, key)
     if previous:
         data.pop('value', None)
@@ -153,7 +158,8 @@ def options(profile=Depends(actor_profile)):
     farms = [farm for farm in rows(db_collection_id2) if can_manage(profile, farm)]
     farm_ids = {farm['$id'] for farm in farms}
     devices = [device for device in rows(db_collection_id11) if device.get('farmID') in farm_ids]
-    return {'farms': [{'$id': f['$id'], 'name': f['name'], 'technician_id': f.get('technician_id', '')} for f in farms],
+    return {'can_configure_commands': profile['role'] in {'admin', 'superadmin'},
+            'farms': [{'$id': f['$id'], 'name': f['name'], 'technician_id': f.get('technician_id', '')} for f in farms],
             'devices': devices}
 
 

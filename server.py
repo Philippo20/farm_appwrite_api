@@ -4,6 +4,7 @@ from routes.push_devices import router as push_router
 from routes.live_workspace import router as live_workspace_router
 from routes.device_maintenance import router as device_maintenance_router
 from routes.light_switches import router as light_switch_router
+from routes.command_devices import router as command_device_router
 from fastapi import FastAPI, Header, HTTPException
 import os
 from routes.r1_users import collection1_router
@@ -95,6 +96,7 @@ app.include_router(collection10_router)
 app.include_router(collection11_router)
 app.include_router(device_maintenance_router)
 app.include_router(light_switch_router)
+app.include_router(command_device_router)
 app.include_router(collection12_router)
 app.include_router(collection13_router)
 app.include_router(collection14_router)

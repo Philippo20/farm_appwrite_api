@@ -4,6 +4,9 @@ from appwrite.services.databases import Databases
 
 db = Databases(client)
 
+db.create_string_attribute(database_id=db_id, collection_id=db_collection_id11,
+                           key='command_config', size=8192, required=False)
+
 # define attributes
 result = db.create_string_attribute(
     database_id= db_id,
@@ -25,7 +28,7 @@ result = db.create_enum_attribute(
     database_id= db_id,
     collection_id= db_collection_id11,
     key="sensortype",
-    elements=["temperature", "humidity", "Carbon Dioxide","light", "pH Level", "EC Level", "Water level","electricity_current", "electricity_voltage", "electricity_wattage", "VPD"],
+    elements=["temperature", "humidity", "Carbon Dioxide","light", "pH Level", "EC Level", "Water level","electricity_current", "electricity_voltage", "electricity_wattage", "VPD", "water_temperature", "light_switch", "air_conditioner", "command_device"],
     required= True
 )
 
