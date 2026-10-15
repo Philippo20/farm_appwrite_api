@@ -14,9 +14,9 @@ def parse_time(value):
     except (TypeError, ValueError):
         return None
 
-def online(heartbeat, now):
+def online(heartbeat, now, *, timeout=OFFLINE_SECONDS):
     at = parse_time(heartbeat.get('seen_at')) if heartbeat else None
-    return at is not None and 0 <= (now-at).total_seconds() <= OFFLINE_SECONDS
+    return at is not None and 0 <= (now-at).total_seconds() <= timeout
 
 def command_live(command, heartbeat, now):
     expiry = parse_time(command.get('expires_at')) if command else None

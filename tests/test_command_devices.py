@@ -105,6 +105,19 @@ class CommandProtocolTests(unittest.TestCase):
         self.assertEqual(self.send('stop').status_code, 200)
         self.assertEqual(self.audit.call_args.kwargs['performed_by_id'], 'admin')
 
+    def test_presence_expires_after_five_seconds_and_recovers_on_poll(self):
+        self.poll()
+        self.assertEqual(self.state()['offline_after_ms'], 5000)
+        self.now += timedelta(seconds=4.999)
+        self.assertTrue(self.state()['online'])
+        self.now += timedelta(milliseconds=2)
+        self.assertFalse(self.state()['online'])
+        self.assertFalse(self.state()['ready'])
+        self.assertEqual(self.send().status_code, 409)
+        self.assertEqual(self.poll().status_code, 200)
+        self.assertTrue(self.state()['online'])
+        self.assertTrue(self.state()['ready'])
+
     def test_repeat_request_never_requeues_and_other_commands_cannot_overwrite_slot(self):
         self.poll(); request = str(uuid4())
         self.assertEqual(self.send(request=request).status_code, 200)

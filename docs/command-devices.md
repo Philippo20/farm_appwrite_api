@@ -13,7 +13,7 @@ Command devices have no numeric readings, thresholds, calibration or automatic
 maintenance tasks. Normal sensor ingest cannot create or modify command devices.
 
 The card shows online status, the command selector, value preview and the last
-device result. The card refreshes every five seconds in the foreground. Admins and
+device result. The card refreshes every two seconds in the foreground. Admins and
 the existing assigned farm owner/caretaker control roles may send commands.
 Assigned technicians and farm managers may view status without sending commands.
 Configuration remains limited to Admin and Super Admin. User requests require an
@@ -62,7 +62,8 @@ increment sequence without executing anything. A stale acknowledgement returns
 
 ## Delivery guarantees
 
-- A board is online for 15 seconds after its last authenticated poll.
+- A board is online for 5 seconds after its last authenticated poll. The state
+  response includes `offline_after_ms: 5000` so the card uses the same timeout.
 - A command expires after 10 seconds and is bound to its boot session, sequence
   and configuration revision. Restarting or editing configuration invalidates it.
 - An immutable, unique database document claims each board sequence. Concurrent

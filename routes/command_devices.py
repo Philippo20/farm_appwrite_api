@@ -16,6 +16,7 @@ from device_maintenance import can_manage
 from device_commands import configured_commands, config_revision
 
 router = APIRouter(prefix='/command-devices', tags=['Command devices'])
+OFFLINE_SECONDS = 5
 
 def sensor_for(serial):
     rows = db.list_documents(db_id, db_collection_id11,
@@ -59,9 +60,10 @@ def view(sensor, can_send=True):
     status = None
     if command:
         status = ('confirmed' if ack['success'] else 'failed') if ack else 'pending' if pending else 'expired'
-    return {'serial_number': sensor['serial_number'], 'online': online(heartbeat, now),
+    return {'serial_number': sensor['serial_number'], 'online': online(heartbeat, now, timeout=OFFLINE_SECONDS),
+        'offline_after_ms': OFFLINE_SECONDS * 1000,
         'enabled': sensor.get('status') == 'Active', 'pending': pending, 'can_send': can_send,
-        'ready': can_send and online(heartbeat, now) and sensor.get('status') == 'Active' and not occupied,
+        'ready': can_send and online(heartbeat, now, timeout=OFFLINE_SECONDS) and sensor.get('status') == 'Active' and not occupied,
         'commands': configured_commands(sensor.get('command_config')),
         'config_revision': config_revision(sensor),
         'seen_at': heartbeat.get('seen_at') if heartbeat else None, 'server_time': now.isoformat(),
@@ -112,7 +114,7 @@ def send(serial: str, body: Send, actor=Depends(current_member)):
         heartbeat = get_doc(key('j', sensor['$id']))
         if sensor.get('status') != 'Active':
             raise HTTPException(409, 'Activate this device before sending commands.')
-        if not online(heartbeat, now_utc()):
+        if not online(heartbeat, now_utc(), timeout=OFFLINE_SECONDS):
             raise HTTPException(409, 'The command device is offline.')
         definition = next((item for item in configured_commands(sensor.get('command_config'))
                            if item['id'] == body.command_key), None)
