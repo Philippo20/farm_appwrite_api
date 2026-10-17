@@ -209,6 +209,9 @@ class CalibrationRouteTests(unittest.TestCase):
         next_page = self.events_client.get('/command-devices/F-001/calibrations/events', params={'before': page['next_cursor'], 'limit': 2}).json()
         self.assertEqual(len(next_page['events']), 1)
         self.assertNotEqual(page['events'][0]['event_id'], next_page['events'][0]['event_id'])
+        wrong_filter = self.events_client.get('/command-devices/F-001/calibrations/events',
+            params={'before': page['next_cursor'], 'calibration_id': str(uuid4())})
+        self.assertEqual(wrong_filter.status_code, 404)
         self.actor = {'$id': 'stranger', 'role': 'caretaker', 'status': 'Active'}
         self.assertEqual(self.overview().status_code, 403)
 

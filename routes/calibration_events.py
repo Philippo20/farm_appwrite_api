@@ -132,7 +132,8 @@ def history(serial: str, before: UUID | None = None,
     authorize(actor, sensor)
     if before:
         cursor = read_event(str(before))
-        if not cursor or cursor['sensor_id'] != sensor['$id']:
+        if (not cursor or cursor['sensor_id'] != sensor['$id'] or
+                (calibration_id and cursor['calibration_id'] != str(calibration_id))):
             raise HTTPException(404, 'History cursor not found for this device.')
     filters = [Query.equal('calibration_id', [str(calibration_id)])] if calibration_id else []
     rows = rows_for(sensor['$id'], *filters, limit=limit + 1, before=str(before) if before else None)
