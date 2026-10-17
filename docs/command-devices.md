@@ -13,7 +13,8 @@ Command devices have no numeric readings, thresholds, calibration or automatic
 maintenance tasks. Normal sensor ingest cannot create or modify command devices.
 
 The card shows online status, the command selector, value preview and the last
-device result. The card refreshes every two seconds in the foreground. Admins and
+device result. The card schedules its next refresh two seconds after the previous
+request finishes in the foreground. Admins and
 the existing assigned farm owner/caretaker control roles may send commands.
 Assigned technicians and farm managers may view status without sending commands.
 Configuration remains limited to Admin and Super Admin. User requests require an
@@ -62,8 +63,16 @@ increment sequence without executing anything. A stale acknowledgement returns
 
 ## Delivery guarantees
 
-- A board is online for 4 seconds after its last authenticated poll. The state
-  response includes `offline_after_ms: 4000` so the card uses the same timeout.
+- A board is online for 5.5 seconds after its last authenticated poll. The state
+  response includes `offline_after_ms: 5500`.
+- The Flutter card uses `HeartbeatPoller`, a ChangeNotifier with a separate
+  5.5-second grace timer starting when a new board heartbeat is received. A
+  delayed/failed HTTP request does not immediately clear Online. Repeated stale
+  `seen_at` values do not renew grace. It does not add request duration to the
+  heartbeat age. API reachability alone is not proof of device presence.
+- `startPolling()` starts immediately. `stopPolling()` cancels scheduling and
+  the transport, invalidates late responses, and sets Offline synchronously.
+  Requests never stack; the next fetch waits for completion, then two seconds.
 - A command expires after 10 seconds and is bound to its boot session, sequence
   and configuration revision. Restarting or editing configuration invalidates it.
 - An immutable, unique database document claims each board sequence. Concurrent

@@ -105,10 +105,10 @@ class CommandProtocolTests(unittest.TestCase):
         self.assertEqual(self.send('stop').status_code, 200)
         self.assertEqual(self.audit.call_args.kwargs['performed_by_id'], 'admin')
 
-    def test_presence_expires_after_four_seconds_and_recovers_on_poll(self):
+    def test_presence_expires_after_grace_period_and_recovers_on_poll(self):
         self.poll()
-        self.assertEqual(self.state()['offline_after_ms'], 4000)
-        self.now += timedelta(seconds=3.999)
+        self.assertEqual(self.state()['offline_after_ms'], 5500)
+        self.now += timedelta(seconds=5.499)
         self.assertTrue(self.state()['online'])
         self.now += timedelta(milliseconds=2)
         self.assertFalse(self.state()['online'])

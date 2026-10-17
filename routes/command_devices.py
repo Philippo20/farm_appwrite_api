@@ -16,7 +16,7 @@ from device_maintenance import can_manage
 from device_commands import configured_commands, config_revision
 
 router = APIRouter(prefix='/command-devices', tags=['Command devices'])
-OFFLINE_SECONDS = 4
+OFFLINE_SECONDS = 5.5
 
 def sensor_for(serial):
     rows = db.list_documents(db_id, db_collection_id11,
@@ -51,9 +51,11 @@ def authorize(actor, sensor, control=False):
     return allowed
 
 def view(sensor, can_send=True):
-    heartbeat = get_doc(key('j', sensor['$id']))
     command = latest(sensor['$id'])
     ack = get_doc(key('z', command['id'])) if command else None
+    # Read presence after command history: slow history queries must not age an
+    # earlier heartbeat snapshot while the board is successfully polling.
+    heartbeat = get_doc(key('j', sensor['$id']))
     now = now_utc()
     pending = bool(command and not ack and live(command, heartbeat, sensor, now))
     occupied = get_doc(slot(sensor['$id'], heartbeat['session_id'], heartbeat['sequence'])) if heartbeat else None
