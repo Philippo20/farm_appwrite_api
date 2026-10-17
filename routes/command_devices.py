@@ -16,7 +16,7 @@ from device_maintenance import can_manage
 from device_commands import configured_commands, config_revision
 
 router = APIRouter(prefix='/command-devices', tags=['Command devices'])
-OFFLINE_SECONDS = 5
+OFFLINE_SECONDS = 4
 
 def sensor_for(serial):
     rows = db.list_documents(db_id, db_collection_id11,

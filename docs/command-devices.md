@@ -62,8 +62,8 @@ increment sequence without executing anything. A stale acknowledgement returns
 
 ## Delivery guarantees
 
-- A board is online for 5 seconds after its last authenticated poll. The state
-  response includes `offline_after_ms: 5000` so the card uses the same timeout.
+- A board is online for 4 seconds after its last authenticated poll. The state
+  response includes `offline_after_ms: 4000` so the card uses the same timeout.
 - A command expires after 10 seconds and is bound to its boot session, sequence
   and configuration revision. Restarting or editing configuration invalidates it.
 - An immutable, unique database document claims each board sequence. Concurrent
