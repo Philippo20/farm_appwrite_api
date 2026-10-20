@@ -42,6 +42,7 @@ from auth import auth_router
 from routes.messaging import messaging_router
 from backups import backups_router
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from production_reminders import production_lifespan
 
 app = FastAPI(
@@ -118,9 +119,11 @@ def debug_headers(authorization: str = Header(None)):
 
 
 @app.get("/health")
-def health_check():
+async def health_check():
     """Liveness endpoint used by DigitalOcean and uptime monitoring."""
-    return {"status": "ok", "service": "farmestates-api"}
+    # Stay independent of Appwrite and the sync worker pool during load spikes.
+    return JSONResponse({"status": "ok", "service": "farmestates-api"},
+                        headers={"Cache-Control": "no-store"})
 
 
 @app.get("/ready")
