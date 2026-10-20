@@ -51,6 +51,14 @@ class CalibrationModelTests(unittest.TestCase):
         self.assertEqual(session_view([running, rejected])['status'], 'running')
         self.assertEqual(session_view([running, rejected])['latest_event']['type'], 'calibration.rejected')
 
+    def test_rejected_start_retains_the_last_confirmed_ready_stage(self):
+        ready = sample(type='calibration.waiting_for_start', selection_at='2026-10-17T12:00:00Z')
+        rejected = {**ready, 'event_id': str(uuid4()), 'type': 'calibration.rejected',
+            'uptime_ms': 125001, 'reason': 'grid_power_unavailable'}
+        view = session_view([ready, rejected])
+        self.assertEqual(view['status'], 'rejected')
+        self.assertEqual(view['last_progress']['type'], 'calibration.waiting_for_start')
+
     def test_only_meaningful_outcomes_publish_notifications(self):
         sensor = {'serial_number': 'CMD', 'farmID': 'farm'}
         self.assertIsNone(notification_for(sample(), sensor, 'admin'))

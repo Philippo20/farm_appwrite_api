@@ -68,7 +68,8 @@ def session_view(events):
     return {'calibration_id': current['calibration_id'], 'session_id': current['session_id'],
         'target': current['target'], 'rack': current.get('rack'),
         'selection_at': current['selection_at'], 'status': current['type'].split('.')[-1],
-        'event': current, 'latest_event': latest}
+        'event': current, 'latest_event': latest,
+        'last_progress': max(progress, key=lambda e: (PHASE[e['type']], *event_order(e))) if progress else None}
 
 def target_label(event):
     return {'ef_drain': 'EF Drain', 'p_drain': 'P Drain',

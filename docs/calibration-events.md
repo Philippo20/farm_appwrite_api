@@ -93,6 +93,15 @@ measurements and paginated expandable history. Use the device's configured named
 commands for selection, `CAL_START`, stop and cancellation; exact firmware values
 are preserved. Sending is limited to existing authorized control roles.
 
+The configured selection values are `EF_D_SELECT`, `P_D_SELECT`, and
+`FERT_D_SELECT`. The picker shows only these calibration selections. Once the
+controller reports `waiting_for_start`, the selection control becomes **Start** /
+**Cancel**, using the registered IDs for `CAL_START` / `CAL_CANCEL`. On `starting`
+or `running`, the controls become **Stop** / **Cancel**, using `CAL_STOP` /
+`CAL_CANCEL`. A confirmed cancellation returns to the selection view. A command
+ACK alone never advances this workflow. Missing configured actions are disabled
+with a configuration message rather than guessed or replaced by another command.
+
 When offline during an active calibration, the UI says **status unknown**, retaining
 the last report and saved measurements. It never assumes cancellation or success.
 
