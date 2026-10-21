@@ -115,7 +115,7 @@ def overview(serial: str, actor=Depends(current_member)):
     # A failed new selection must not hide an existing running calibration.
     current = next((s for s in sessions if s['status'] != 'rejected'), sessions[0] if sessions else None)
     saved = []
-    for target, rack in [('ef_drain', '-'), ('p_drain', '-'), ('fertigation', 'E'), ('fertigation', 'F'), ('fertigation', 'P')]:
+    for target, rack in ([('ef_drain', '-'), ('p_drain', '-'), ('fertigation', 'E'), ('fertigation', 'F'), ('fertigation', 'P')] if rows else []):
         values = rows_for(sensor['$id'], Query.equal('saved', [True]),
             Query.equal('target', [target]), Query.equal('rack', [rack]), limit=1)
         if values:

@@ -147,6 +147,14 @@ class CalibrationRouteTests(unittest.TestCase):
             headers={'x-sensor-key': key})
     def overview(self): return self.events_client.get('/command-devices/F-001/calibrations')
 
+    def test_device_without_events_needs_only_one_event_query(self):
+        with patch.object(self.cal, 'rows_for', wraps=self.cal.rows_for) as queries:
+            response = self.overview()
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNone(response.json()['current'])
+        self.assertEqual(response.json()['saved_durations'], [])
+        self.assertEqual(queries.call_count, 1)
+
     def test_event_is_persistent_idempotent_and_does_not_renew_heartbeat(self):
         heartbeat = self.read(self.route.key('j', 'device'))
         self.now += timedelta(minutes=5)

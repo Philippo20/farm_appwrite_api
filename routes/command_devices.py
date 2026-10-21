@@ -70,7 +70,7 @@ def view(sensor, can_send=True):
         'config_revision': config_revision(sensor),
         'controller_session_id': heartbeat.get('session_id') if heartbeat else None,
         'seen_at': heartbeat.get('seen_at') if heartbeat else None, 'server_time': now.isoformat(),
-        'last_command': {**{k: command[k] for k in ('id', 'label', 'value', 'created_at', 'expires_at')},
+        'last_command': {**{k: command[k] for k in ('id', 'label', 'value', 'created_at', 'expires_at', 'session_id')},
             'status': status, 'result': ack.get('message') if ack else None,
             'confirmed_at': ack.get('at') if ack else None} if command else None}
 

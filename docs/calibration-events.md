@@ -98,8 +98,15 @@ The configured selection values are `EF_D_SELECT`, `P_D_SELECT`, and
 controller reports `waiting_for_start`, the selection control becomes **Start** /
 **Cancel**, using the registered IDs for `CAL_START` / `CAL_CANCEL`. On `starting`
 or `running`, the controls become **Stop** / **Cancel**, using `CAL_STOP` /
-`CAL_CANCEL`. A confirmed cancellation returns to the selection view. A command
-ACK alone never advances this workflow. Missing configured actions are disabled
+`CAL_CANCEL`. A confirmed cancellation returns to the selection view. Command
+ACKs with `success=true` also advance the controls when firmware events are
+delayed or unavailable: a selection ACK shows **Start / Cancel**, a start ACK
+shows **Stop / Cancel**, and stop/cancel ACKs return to selection. These are
+explicitly labelled command confirmations; they never invent a running-pump
+reading, a completed measurement, a saved duration, or a calibration event.
+ACKs are scoped to the original boot session and pending command ID. Calibration
+terminal/rejection events override command confirmations for that calibration.
+Missing configured actions are disabled
 with a configuration message rather than guessed or replaced by another command.
 
 When offline during an active calibration, the UI says **status unknown**, retaining

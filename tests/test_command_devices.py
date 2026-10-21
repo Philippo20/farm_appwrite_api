@@ -98,6 +98,7 @@ class CommandProtocolTests(unittest.TestCase):
         self.assertEqual(command['id'], request)
         self.assertEqual(self.ack(request).status_code, 200)
         self.assertEqual(self.state()['last_command']['status'], 'confirmed')
+        self.assertEqual(self.state()['last_command']['session_id'], 'boot-session-one')
         self.assertEqual(self.state()['last_command']['result'], 'Pump started')
         self.assertTrue(self.poll().json()['advance_sequence'])
         self.poll(sequence=1)
