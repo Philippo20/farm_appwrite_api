@@ -141,6 +141,16 @@ class ActivityRouteTests(unittest.TestCase):
         self.module.get_doc = Mock(side_effect=[previous, {**previous, 'session_id': 'new-boot-session'}])
         self.assertIsNone(self.module.current_snapshot(self.sensor)['snapshot'])
 
+    def test_presence_age_uses_server_clock_and_exact_grace(self):
+        heartbeat = {'session_id': 'boot', 'seen_at': self.now.isoformat()}
+        state = self.module.presence_view(self.sensor, heartbeat)
+        self.assertEqual(state['heartbeat_age_ms'], 0)
+        self.assertEqual(state['offline_after_ms'], 5500)
+        self.now += timedelta(milliseconds=5501)
+        state = self.module.presence_view(self.sensor, heartbeat)
+        self.assertFalse(state['online'])
+        self.assertEqual(state['heartbeat_age_ms'], 5501)
+
     def test_faults_queue_notifications_but_not_normal_status(self):
         self.ingest(sample(1)); self.ingest(sample(2, type='grid.changed', grid_available=False))
         self.ingest(sample(3, type='rtc.changed', rtc_available=False))

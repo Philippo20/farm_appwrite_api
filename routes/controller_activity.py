@@ -10,7 +10,7 @@ from main import db_id, db_collection_id11
 from routes.messaging import current_member
 from routes.command_devices import sensor_for, authorize, OFFLINE_SECONDS
 from routes.light_switches import authorize_device, get_doc, key
-from switch_control import online, now_utc
+from switch_control import online, now_utc, parse_time
 from controller_activity import ControllerActivityEvent, activity_key, output_value, reported_elapsed
 
 router = APIRouter(tags=['Controller activity'])
@@ -91,7 +91,10 @@ def current_snapshot(sensor):
 def presence_view(sensor, current):
     now = now_utc()
     enabled = sensor.get('status') == 'Active'
+    seen = parse_time((current or {}).get('seen_at'))
     return {'online': enabled and online(current, now, timeout=OFFLINE_SECONDS), 'enabled': enabled,
+            'offline_after_ms': int(OFFLINE_SECONDS * 1000),
+            'heartbeat_age_ms': max(0, int((now - seen).total_seconds() * 1000)) if seen else None,
             'seen_at': (current or {}).get('seen_at'),
             'controller_session_id': (current or {}).get('session_id'),
             'server_time': now.isoformat()}
@@ -156,6 +159,8 @@ def equipment(response: Response, device_id: list[str] = ApiQuery(..., min_lengt
         item.update(online=state['online'], seen_at=state['seen_at'],
             enabled=state.get('enabled', True), controller_session_id=state.get('controller_session_id'),
             server_time=state['server_time'],
+            offline_after_ms=state.get('offline_after_ms', int(OFFLINE_SECONDS * 1000)),
+            heartbeat_age_ms=state.get('heartbeat_age_ms'),
             received_at=snapshot.get('received_at') if snapshot else None,
             generation=snapshot.get('generation') if snapshot else None,
             reported_on=output_value(snapshot, item['output']) if snapshot else None,

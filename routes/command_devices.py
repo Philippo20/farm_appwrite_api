@@ -64,6 +64,7 @@ def view(sensor, can_send=True):
         status = ('confirmed' if ack['success'] else 'failed') if ack else 'pending' if pending else 'expired'
     return {'serial_number': sensor['serial_number'], 'online': online(heartbeat, now, timeout=OFFLINE_SECONDS),
         'offline_after_ms': OFFLINE_SECONDS * 1000,
+        'heartbeat_age_ms': max(0, int((now - parse_time(heartbeat['seen_at'])).total_seconds() * 1000)) if heartbeat and parse_time(heartbeat.get('seen_at')) else None,
         'enabled': sensor.get('status') == 'Active', 'pending': pending, 'can_send': can_send,
         'ready': can_send and online(heartbeat, now, timeout=OFFLINE_SECONDS) and sensor.get('status') == 'Active' and not occupied,
         'commands': configured_commands(sensor.get('command_config')),

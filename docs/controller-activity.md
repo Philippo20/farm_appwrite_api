@@ -89,6 +89,13 @@ equipment. Admin and technician equipment cards use the same reported status.
 The Flutter ChangeNotifier polls sequentially: wait for completion then 2 seconds;
 requests time out and abort at 8 seconds, pause in background, and resume on return.
 One HTTP failure retains the last report through the presence grace period.
+After 5.5 seconds without a new observation the app marks synchronization as
+unknown (Syncing/Reconnecting), rather than inferring that the board is offline.
+Only a successful API observation confirming the board heartbeat expired shows
+Offline. `heartbeat_age_ms` and `offline_after_ms` use the API clock; the phone's
+clock is not used to judge the ESP32. Cached/out-of-order observations cannot
+renew presence or replace a newer report. Returning from background immediately
+checks again after any cancelled request has finished.
 Unavailable API status never invents OFF. Offline/stale cards label last-known
 reports explicitly; no report from the current boot means Awaiting report.
 Each advancing, API-qualified `seen_at` earns a full 5.5-second grace window
