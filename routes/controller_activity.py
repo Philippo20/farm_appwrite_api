@@ -122,7 +122,7 @@ def history(serial: str, before: str | None = None, limit: int = ApiQuery(25, ge
 
 @router.get('/controller-equipment')
 def equipment(response: Response, device_id: list[str] = ApiQuery(..., min_length=1, max_length=100),
-              presence_only: bool = False, actor=Depends(current_member)):
+              presence_only: bool = False, status_only: bool = False, actor=Depends(current_member)):
     response.headers['Cache-Control'] = 'no-store'
     from routes.device_maintenance import history_for
     from device_maintenance import plans_for, schedule_view
@@ -139,17 +139,17 @@ def equipment(response: Response, device_id: list[str] = ApiQuery(..., min_lengt
             controllers[controller_id] = controller
         if controller.get('sensortype') != 'command_device' or controller.get('farmID') != device.get('farmID'):
             raise HTTPException(409, 'Equipment controller link needs review.')
-        plans = plans_for(device) if not presence_only else []
+        plans = plans_for(device) if not (presence_only or status_only) else []
         records = history_for(device['$id']) if plans else []
         tasks = [schedule_view(device, plan, records, datetime.now(timezone.utc).date()) for plan in plans]
         maintenance = next((s for s in ['Overdue', 'Due soon', 'Scheduled'] if any(t['status'] == s for t in tasks)), 'No scheduled maintenance')
         result.append({'device_id': device['$id'], 'controller_id': controller_id,
             'controller_serial': controller['serial_number'], 'output': device.get('controller_output'),
             **({'maintenance_status': maintenance,
-            'next_due': min((t['due_date'] for t in tasks), default=None)} if not presence_only else {})})
+            'next_due': min((t['due_date'] for t in tasks), default=None)} if not (presence_only or status_only) else {})})
     # One snapshot read per controller, shared by all of its registered outputs.
     states = {identity: ({'snapshot': None, **presence_view(controller, get_doc(key('j', identity)))}
-        if presence_only else current_snapshot(controller)) for identity, controller in controllers.items()}
+        if presence_only and not status_only else current_snapshot(controller)) for identity, controller in controllers.items()}
     for item in result:
         state = states[item['controller_id']]
         snapshot = state['snapshot']

@@ -76,9 +76,12 @@ proves presence, expiring after 5.5 seconds.
   equipment IDs, scoped to active user's farm/role. Each parent is queried once
   per batch. Returns reported_on (nullable), presence, received_at, output, next_due,
   maintenance_status and uptime-based elapsed_ms when applicable.
-  Add `presence_only=true` for the compact IoT dashboard: it reads one current
-  heartbeat per controller and skips activity/maintenance history. Maintenance
-  fields are omitted in this mode. Responses are `Cache-Control: no-store`.
+  Add `status_only=true` for the compact IoT dashboard: it reads the current-boot
+  output snapshot and heartbeat once per controller, skipping maintenance history.
+  Each light uses its own `lights.E`, `lights.F` or `lights.P` value for ON/OFF;
+  controller connectivity alone never means an output is ON. Maintenance fields
+  are omitted in this mode. Legacy `presence_only=true` returns only the heartbeat
+  with no output snapshot. Responses are `Cache-Control: no-store`.
 
 Controller cards offer **Controller activity & history**. Caretaker/farm owner
 Farm Equipment Status keeps its existing headings/tabs and shows actual registered

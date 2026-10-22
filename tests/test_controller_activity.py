@@ -203,6 +203,30 @@ class ActivityRouteTests(unittest.TestCase):
         self.module.current_snapshot.assert_not_called(); history.assert_not_called()
         self.assertNotIn('maintenance_status', response.json()['equipment'][0])
 
+    def test_compact_status_uses_each_output_without_maintenance_queries(self):
+        devices = [{'$id': identity, 'farmID': 'farm', 'controller_id': 'board',
+            'controller_output': output, 'maintenance_plan': '[{"id":"clean"}]'}
+            for identity, output in [('light-e', 'lights.E'), ('light-f', 'lights.F')]]
+        self.db.list_documents.side_effect = lambda *a, **kw: {'documents': devices}
+        self.db.get_document.side_effect = None; self.db.get_document.return_value = self.sensor
+        report = {**sample(), 'received_at': self.now.isoformat(), 'generation': 42}
+        report['lights']['F'] = False
+        snapshot = self.module.current_snapshot = Mock(return_value={'snapshot': report,
+            'online': True, 'seen_at': self.now.isoformat(), 'server_time': self.now.isoformat()})
+        history = Mock()
+        with patch.dict(sys.modules, {'routes.device_maintenance': types.SimpleNamespace(history_for=history)}):
+            response = self.client.get('/controller-equipment?device_id=light-e&device_id=light-f&status_only=true')
+            self.assertEqual(response.status_code, 200, response.text)
+            e, f = response.json()['equipment']
+            self.assertTrue(e['online']); self.assertTrue(f['online'])
+            self.assertTrue(e['reported_on']); self.assertFalse(f['reported_on'])
+            snapshot.assert_called_once(); history.assert_not_called()
+            self.assertNotIn('maintenance_status', e)
+            # A fresh controller boot with no output report cannot invent ON.
+            snapshot.return_value['snapshot'] = None
+            response = self.client.get('/controller-equipment?device_id=light-e&device_id=light-f&status_only=true')
+            self.assertTrue(all(item['reported_on'] is None for item in response.json()['equipment']))
+
 class LinkTests(unittest.TestCase):
     def test_unique_claim_and_owner_checked_release(self):
         db = Mock(); db.create_document.side_effect = AppwriteException('duplicate', 409)
