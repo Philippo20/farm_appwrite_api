@@ -2,7 +2,7 @@
 import json
 import os
 from datetime import datetime, timezone
-from fastapi import APIRouter, Depends, HTTPException, Query as ApiQuery
+from fastapi import APIRouter, Depends, HTTPException, Response, Query as ApiQuery
 from appwrite.query import Query
 from appwrite.exception import AppwriteException
 from db import db
@@ -86,10 +86,15 @@ def current_snapshot(sensor):
     current = get_doc(key('j', sensor['$id']))
     if snapshot and (not current or current['session_id'] != snapshot['session_id']):
         snapshot = None
-    return {'snapshot': snapshot, 'online': sensor.get('status') == 'Active' and online(current, now_utc(), timeout=OFFLINE_SECONDS),
+    return {'snapshot': snapshot, **presence_view(sensor, current)}
+
+def presence_view(sensor, current):
+    now = now_utc()
+    enabled = sensor.get('status') == 'Active'
+    return {'online': enabled and online(current, now, timeout=OFFLINE_SECONDS), 'enabled': enabled,
             'seen_at': (current or {}).get('seen_at'),
             'controller_session_id': (current or {}).get('session_id'),
-            'server_time': now_utc().isoformat()}
+            'server_time': now.isoformat()}
 
 @router.get('/command-devices/{serial}/activity')
 def activity(serial: str, actor=Depends(current_member)):
@@ -116,7 +121,9 @@ def history(serial: str, before: str | None = None, limit: int = ApiQuery(25, ge
         'next_cursor': rows[limit - 1]['$id'] if len(rows) > limit else None}
 
 @router.get('/controller-equipment')
-def equipment(device_id: list[str] = ApiQuery(..., min_length=1, max_length=100), actor=Depends(current_member)):
+def equipment(response: Response, device_id: list[str] = ApiQuery(..., min_length=1, max_length=100),
+              presence_only: bool = False, actor=Depends(current_member)):
+    response.headers['Cache-Control'] = 'no-store'
     from routes.device_maintenance import history_for
     from device_maintenance import plans_for, schedule_view
     rows = db.list_documents(db_id, db_collection_id11, queries=[Query.equal('$id', list(set(device_id))), Query.limit(100)])['documents']
@@ -132,20 +139,22 @@ def equipment(device_id: list[str] = ApiQuery(..., min_length=1, max_length=100)
             controllers[controller_id] = controller
         if controller.get('sensortype') != 'command_device' or controller.get('farmID') != device.get('farmID'):
             raise HTTPException(409, 'Equipment controller link needs review.')
-        plans = plans_for(device)
+        plans = plans_for(device) if not presence_only else []
         records = history_for(device['$id']) if plans else []
         tasks = [schedule_view(device, plan, records, datetime.now(timezone.utc).date()) for plan in plans]
         maintenance = next((s for s in ['Overdue', 'Due soon', 'Scheduled'] if any(t['status'] == s for t in tasks)), 'No scheduled maintenance')
         result.append({'device_id': device['$id'], 'controller_id': controller_id,
             'controller_serial': controller['serial_number'], 'output': device.get('controller_output'),
-            'maintenance_status': maintenance,
-            'next_due': min((t['due_date'] for t in tasks), default=None)})
+            **({'maintenance_status': maintenance,
+            'next_due': min((t['due_date'] for t in tasks), default=None)} if not presence_only else {})})
     # One snapshot read per controller, shared by all of its registered outputs.
-    states = {identity: current_snapshot(controller) for identity, controller in controllers.items()}
+    states = {identity: ({'snapshot': None, **presence_view(controller, get_doc(key('j', identity)))}
+        if presence_only else current_snapshot(controller)) for identity, controller in controllers.items()}
     for item in result:
         state = states[item['controller_id']]
         snapshot = state['snapshot']
         item.update(online=state['online'], seen_at=state['seen_at'],
+            enabled=state.get('enabled', True), controller_session_id=state.get('controller_session_id'),
             server_time=state['server_time'],
             received_at=snapshot.get('received_at') if snapshot else None,
             generation=snapshot.get('generation') if snapshot else None,

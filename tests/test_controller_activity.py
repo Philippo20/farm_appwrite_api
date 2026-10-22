@@ -185,6 +185,24 @@ class ActivityRouteTests(unittest.TestCase):
         self.assertEqual(pump['maintenance_status'], 'Overdue')
         snapshot.assert_called_once()
 
+    def test_presence_only_skips_activity_and_maintenance_queries(self):
+        devices = [{'$id': identity, 'farmID': 'farm', 'controller_id': 'board',
+            'controller_output': output, 'maintenance_plan': '[{"id":"clean"}]'}
+            for identity, output in [('light-e', 'lights.E'), ('light-f', 'lights.F')]]
+        self.db.list_documents.side_effect = lambda *a, **kw: {'documents': devices}
+        self.db.get_document.side_effect = None; self.db.get_document.return_value = self.sensor
+        self.module.get_doc = Mock(return_value={'session_id': 'boot-session', 'seen_at': self.now.isoformat()})
+        self.module.current_snapshot = Mock()
+        history = Mock()
+        with patch.dict(sys.modules, {'routes.device_maintenance': types.SimpleNamespace(history_for=history)}):
+            response = self.client.get('/controller-equipment?device_id=light-e&device_id=light-f&presence_only=true')
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.headers['cache-control'], 'no-store')
+        self.assertTrue(all(item['online'] for item in response.json()['equipment']))
+        self.module.get_doc.assert_called_once()
+        self.module.current_snapshot.assert_not_called(); history.assert_not_called()
+        self.assertNotIn('maintenance_status', response.json()['equipment'][0])
+
 class LinkTests(unittest.TestCase):
     def test_unique_claim_and_owner_checked_release(self):
         db = Mock(); db.create_document.side_effect = AppwriteException('duplicate', 409)

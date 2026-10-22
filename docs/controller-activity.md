@@ -76,6 +76,9 @@ proves presence, expiring after 5.5 seconds.
   equipment IDs, scoped to active user's farm/role. Each parent is queried once
   per batch. Returns reported_on (nullable), presence, received_at, output, next_due,
   maintenance_status and uptime-based elapsed_ms when applicable.
+  Add `presence_only=true` for the compact IoT dashboard: it reads one current
+  heartbeat per controller and skips activity/maintenance history. Maintenance
+  fields are omitted in this mode. Responses are `Cache-Control: no-store`.
 
 Controller cards offer **Controller activity & history**. Caretaker/farm owner
 Farm Equipment Status keeps its existing headings/tabs and shows actual registered
@@ -85,9 +88,22 @@ requests time out and abort at 8 seconds, pause in background, and resume on ret
 One HTTP failure retains the last report through the presence grace period.
 Unavailable API status never invents OFF. Offline/stale cards label last-known
 reports explicitly; no report from the current boot means Awaiting report.
-Presence age uses API server_time/seen_at plus local monotonic elapsed time.
+Each advancing, API-qualified `seen_at` earns a full 5.5-second grace window
+from receipt on the app's monotonic clock. API/database latency does not shorten
+that window. One failed request or stale offline response does not immediately
+clear healthy presence. Repeated cached `seen_at` values cannot renew it.
+Adding another equipment item preserves existing items' healthy status.
 Periodic snapshots are expected every 30 seconds; reports older than 65 seconds
 are treated as stale even if command polling is healthy.
+
+Polling pauses during actual app sleep/backgrounding and immediately revalidates
+on resume, after any interrupted request finishes. Temporary focus changes are
+ignored. Responses from an earlier lifecycle generation cannot replace fresh
+data or surface an old error. Caretaker and farm owner dashboards retain loaded
+data on a failed background refresh; first-load failures remain visible/retryable.
+Legacy light switches use their existing 15-second heartbeat timeout with the
+same receipt-based grace and lifecycle rules. Light status polling has its own
+bounded, abortable transport and does not raise the global connection overlay.
 
 Only fault/rejection events queue notifications: grid loss, RTC unavailable,
 command rejection. The API accepts after durable storage; its lifespan worker
