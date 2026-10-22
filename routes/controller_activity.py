@@ -100,9 +100,10 @@ def presence_view(sensor, current):
             'server_time': now.isoformat()}
 
 @router.get('/command-devices/{serial}/activity')
-def activity(serial: str, actor=Depends(current_member)):
+def activity(serial: str, response: Response, actor=Depends(current_member)):
     sensor = sensor_for(serial)
     authorize(actor, sensor)
+    response.headers['Cache-Control'] = 'no-store'
     return current_snapshot(sensor)
 
 @router.get('/command-devices/{serial}/activity/events')

@@ -1,4 +1,4 @@
-"""V1.7 activity contract. Outputs are controller reports, not flow/current sensors."""
+"""V1.8 activity contract. Outputs are controller reports, not flow/current sensors."""
 import hashlib
 from typing import Literal, Annotated
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, model_validator
@@ -9,7 +9,9 @@ ACTIVITY_TYPES = ('controller.status', 'fertigation.racks_changed', 'lights.chan
     'fertigation.started', 'fertigation.stopped', 'fertigation.feeding_started',
     'fertigation.feeding_stopped', 'fertigation.state_changed', 'fertigation.paused',
     'fertigation.resumed', 'drainage.started', 'drainage.stopped', 'grid.changed',
-    'rtc.changed', 'command.rejected')
+    'rtc.changed', 'command.rejected', 'fertigation.recovery_queued',
+    'fertigation.recovery_started', 'fertigation.recovery_completed',
+    'fertigation.recovery_cancelled')
 EQUIPMENT_OUTPUTS = {
     'grow_light': {'lights.E': 'Light E', 'lights.F': 'Light F', 'lights.P': 'Light P'},
     'feeding_pump': {'fertigation.pump_on': 'Fertigation pump (D12)'},
@@ -67,7 +69,9 @@ class ControllerActivityEvent(Fields):
         'fertigation.started', 'fertigation.stopped', 'fertigation.feeding_started',
         'fertigation.feeding_stopped', 'fertigation.state_changed', 'fertigation.paused',
         'fertigation.resumed', 'drainage.started', 'drainage.stopped', 'grid.changed',
-        'rtc.changed', 'command.rejected']
+        'rtc.changed', 'command.rejected', 'fertigation.recovery_queued',
+        'fertigation.recovery_started', 'fertigation.recovery_completed',
+        'fertigation.recovery_cancelled']
     target: str = Field(default='', max_length=32)
     reason: str | None = Field(default=None, max_length=64)
     message: str = Field(default='', max_length=1000)

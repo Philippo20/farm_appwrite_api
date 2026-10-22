@@ -28,7 +28,7 @@ def sample(generation=42, session='board-12345678-12345678', **changes):
             'p': {'pump_on': True, 'tank_full': True, 'started_uptime_ms': 110000, 'started_rtc_unix_s': 1792673990}}, **changes}
 
 class ModelTests(unittest.TestCase):
-    def test_full_v17_contract_and_numeric_generation(self):
+    def test_full_v18_contract_and_numeric_generation(self):
         for kind in ACTIVITY_TYPES:
             event = ControllerActivityEvent(**sample(type=kind, reason='command_expired' if kind == 'command.rejected' else None))
             self.assertEqual(event.generation, 42)
@@ -103,7 +103,7 @@ class ActivityRouteTests(unittest.TestCase):
         self.assertEqual(error.exception.status_code, 409)
         self.assertFalse(next(iter(self.events.values()))['notification_pending'])
 
-    def test_shared_event_endpoint_accepts_full_v17_payload(self):
+    def test_shared_event_endpoint_accepts_full_v18_payload(self):
         spec = importlib.util.spec_from_file_location('shared_events_under_test', Path('routes/calibration_events.py'))
         shared = importlib.util.module_from_spec(spec)
         with patch.dict(sys.modules, {'main': types.SimpleNamespace(db_id='db'), 'db': types.SimpleNamespace(db=self.db),
@@ -118,6 +118,19 @@ class ActivityRouteTests(unittest.TestCase):
                 response = client.post('/command-devices/CMD-001/events', json=sample(), headers={'x-sensor-key': 'farm-key'})
                 self.assertEqual(response.status_code, 200, response.text)
                 self.assertTrue(response.json()['accepted'])
+                for generation, kind in enumerate((
+                    'fertigation.recovery_queued', 'fertigation.recovery_started',
+                    'fertigation.recovery_completed', 'fertigation.recovery_cancelled'), 43):
+                    body = sample(generation, type=kind)
+                    body['fertigation'].update(source='manual', active=False,
+                        pump_on=False, manual_requested=kind.endswith('_queued'))
+                    accepted = client.post('/command-devices/CMD-001/events',
+                        json=body, headers={'x-sensor-key': 'farm-key'})
+                    self.assertEqual(accepted.status_code, 200, accepted.text)
+                    duplicate = client.post('/command-devices/CMD-001/events',
+                        json=body, headers={'x-sensor-key': 'farm-key'})
+                    self.assertTrue(duplicate.json()['duplicate'])
+                    self.assertFalse(output_value(body, 'fertigation.pump_on'))
                 invalid = client.post('/command-devices/CMD-001/events', json=sample(grid_available='false'), headers={'x-sensor-key': 'farm-key'})
                 self.assertEqual(invalid.status_code, 422)
 
