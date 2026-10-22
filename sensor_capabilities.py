@@ -10,7 +10,7 @@ def sensor_calibration_required(sensor: dict):
     if isinstance(override, bool):
         return override
     kind = re.sub(r"[^a-z0-9]", "", str(sensor.get("sensortype") or sensor.get("sensor_type") or sensor.get("type") or "").lower())
-    if kind in {"temperature", "temp", "lightswitch", "commanddevice"}:
+    if kind in {"temperature", "temp", "lightswitch", "commanddevice", "growlight", "feedingpump", "drainagepump"}:
         return False
     if kind in {"ph", "phlevel", "ec", "eclevel", "conductivity", "electricalconductivity", "tds"}:
         return True

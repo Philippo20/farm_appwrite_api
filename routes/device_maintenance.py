@@ -74,6 +74,8 @@ class Device(BaseModel):
     status: Literal['Active', 'Inactive', 'Faulty', 'Maintenance'] = 'Active'
     alerts_enabled: bool = True
     command_config: str | None = None
+    controller_id: str | None = Field(default=None, max_length=64)
+    controller_output: str | None = Field(default=None, max_length=64)
     range_min: float | None = None
     range_max: float | None = None
     warning_min: float | None = None
@@ -116,6 +118,11 @@ def save_device(body, profile, device_id=None):
     farm = authorized_farm(profile, body.farmID)
     if previous and previous['farmID'] != body.farmID:
         raise HTTPException(422, 'Keep this device on its registered farm to preserve its maintenance history.')
+    from equipment_links import validate_link, reserve, release, guard_controller_change
+    from controller_activity import EQUIPMENT_OUTPUTS
+    if previous:
+        guard_controller_change(db, db_id, db_collection_id11, previous, body.sensortype, body.farmID)
+    validate_link(db, db_id, db_collection_id11, body.sensortype, body.farmID, body.controller_id, body.controller_output)
     if body.sensortype not in {kind.value for kind in SensorType}:
         raise HTTPException(422, 'Choose a supported device type.')
     for value in (body.value, body.range_min, body.range_max, body.warning_min, body.warning_max):
@@ -143,11 +150,26 @@ def save_device(body, profile, device_id=None):
     # Allow clearing a limit, while preserving telemetry and heartbeat on edits.
     for key in (() if body.sensortype == 'command_device' else ('range_min', 'range_max', 'warning_min', 'warning_max')):
         data[key] = getattr(body, key)
-    if previous:
-        data.pop('value', None)
-        saved = db.update_document(db_id, db_collection_id11, device_id, data)
-    else:
-        saved = db.create_document(db_id, db_collection_id11, ID.unique(), data, permissions=[])
+    device_id = device_id or str(uuid4())
+    linked = body.sensortype in EQUIPMENT_OUTPUTS
+    if linked or (previous or {}).get('controller_id'):
+        data.update(controller_id=body.controller_id, controller_output=body.controller_output)
+    if linked:
+        data.update(value=0, unit='equipment', alerts_enabled=False,
+                    range_min=None, range_max=None, warning_min=None, warning_max=None)
+    claimed = reserve(db, db_id, body.controller_id, body.controller_output, device_id) if linked else False
+    try:
+        if previous:
+            data.pop('value', None)
+            saved = db.update_document(db_id, db_collection_id11, device_id, data)
+        else:
+            saved = db.create_document(db_id, db_collection_id11, device_id, data, permissions=[])
+    except Exception:
+        if claimed:
+            release(db, db_id, {'$id': device_id, **data})
+        raise
+    if previous and (previous.get('controller_id'), previous.get('controller_output')) != (body.controller_id, body.controller_output):
+        release(db, db_id, previous)
     from workflow_notifications import notify_change
     notify_change('Device maintenance', 'Update' if previous else 'Create', previous, saved)
     return {'device': saved}

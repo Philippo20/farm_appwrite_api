@@ -70,12 +70,19 @@ async def reminder_loop():
 
 @asynccontextmanager
 async def production_lifespan(app):
+    from routes.controller_activity import notification_loop
     task = asyncio.create_task(reminder_loop())
+    controller_task = asyncio.create_task(notification_loop())
     try:
         yield
     finally:
         task.cancel()
+        controller_task.cancel()
         try:
             await task
+        except asyncio.CancelledError:
+            pass
+        try:
+            await controller_task
         except asyncio.CancelledError:
             pass

@@ -6,7 +6,7 @@ import unittest
 from datetime import date, timedelta
 from pathlib import Path
 from unittest.mock import Mock, patch
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 from appwrite.exception import AppwriteException
 from device_maintenance import can_manage, schedule_view, occurrence_id
@@ -118,6 +118,37 @@ class MaintenanceRouteTests(unittest.TestCase):
             self.profile['$id'] = 'other'
             self.assertEqual(self.client.put('/device-maintenance/devices/device', json=body).status_code, 403)
         self.db.create_document.assert_not_called()
+
+    def test_linked_equipment_has_independent_optional_plans_and_exclusive_output(self):
+        from equipment_links import BINDINGS
+        self.store[BINDINGS] = {}
+        self.store['devices']['board'] = {'$id': 'board', 'sensortype': 'command_device', 'farmID': 'farm'}
+        def get(database, collection, identity):
+            try: return self.store[collection][identity]
+            except KeyError: raise AppwriteException('Not found', 404)
+        self.db.get_document.side_effect = get
+        body = {'farmID': 'farm', 'sensortype': 'grow_light', 'model_number': 'Rack E light',
+            'location': 'Room 1', 'serial_number': 'LIGHT-001', 'controller_id': 'board',
+            'controller_output': 'lights.E', 'plans': []}
+        with patch.dict(sys.modules, {'routes.r11_sensors': self.sensors_module}):
+            response = self.client.post('/device-maintenance/devices', json=body)
+            self.assertEqual(response.status_code, 200, response.text)
+            saved = response.json()['device']
+            self.assertEqual(saved['controller_output'], 'lights.E')
+            self.assertEqual(saved['unit'], 'equipment')
+            self.assertFalse(saved['alerts_enabled'])
+            self.assertEqual(json.loads(saved['maintenance_plan']), [])
+            duplicate = self.client.post('/device-maintenance/devices', json={**body, 'serial_number': 'LIGHT-002'})
+            self.assertEqual(duplicate.status_code, 409, duplicate.text)
+            changed = self.client.put('/device-maintenance/devices/' + saved['$id'], json={**body,
+                'plans': [{'type': 'cleaning', 'interval_days': 30, 'first_due': '2026-01-01'}]})
+            self.assertEqual(changed.status_code, 200, changed.text)
+            self.assertEqual(len(json.loads(changed.json()['device']['maintenance_plan'])), 1)
+            self.assertEqual(len(self.store[BINDINGS]), 1)
+            for kind in ['grow_light', 'feeding_pump', 'drainage_pump']:
+                with self.assertRaises(HTTPException) as error:
+                    self.sensors_module.ingest_sensor_reading({'sensortype': kind, 'value': 99}, 'key')
+                self.assertEqual(error.exception.status_code, 422)
 
     def test_complete_saves_real_record_and_next_date_without_changing_telemetry(self):
         response = self.client.post('/device-maintenance/devices/device/plans/plan/complete', json=self.payload)

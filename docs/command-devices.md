@@ -6,7 +6,7 @@ optional `command_config` JSON (8192 characters). Commands reuse the private swi
 control collection. Existing temperature sensors and light switches are unchanged.
 
 Admin and Super Admin can register or edit a Command Device from Sensors → Devices.
-Configure 1–12 commands, each with a stable ID, unique name (up to 60 characters)
+Configure 1–24 commands (8192 bytes total), each with a stable ID, unique name (up to 60 characters)
 and exact value (up to 256 characters). The value is delivered as data to firmware;
 the API does not execute code, HTTP requests or shell commands from that value.
 Command devices have no numeric readings, thresholds, calibration or automatic
@@ -87,3 +87,6 @@ increment sequence without executing anything. A stale acknowledgement returns
 Board execution depends on firmware. Automated tests simulate polling, expiry,
 concurrent senders, acknowledgements, configuration changes and role restrictions;
 they do not replace testing the actual controller and connected equipment.
+
+See [V1.7 controller activity and linked equipment](controller-activity.md) for
+reported lights/pumps, rack command presets and independent maintenance records.

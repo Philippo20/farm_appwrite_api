@@ -12,7 +12,7 @@ class NamedCommand(BaseModel):
     label: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=60)]
     value: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=256)]
 
-_commands = TypeAdapter(Annotated[list[NamedCommand], Field(min_length=1, max_length=12)])
+_commands = TypeAdapter(Annotated[list[NamedCommand], Field(min_length=1, max_length=24)])
 
 def configured_commands(raw, required=True):
     try:
@@ -27,10 +27,12 @@ def configured_commands(raw, required=True):
         if any(any(ord(char) < 32 or ord(char) == 127 for char in command[field])
                for command in commands for field in ('label', 'value')):
             raise ValueError('Command names and values must contain printable text.')
+        if len(json.dumps(commands, ensure_ascii=False).encode()) > 8192:
+            raise ValueError('Command configuration must fit within 8192 bytes.')
         return commands
     except (ValidationError, TypeError, ValueError) as error:
         detail = str(error) if isinstance(error, ValueError) and not isinstance(error, ValidationError) else ''
-        raise HTTPException(422, detail or 'Configure 1–12 named commands with a name (60 characters maximum) and value (256 characters maximum).') from error
+        raise HTTPException(422, detail or 'Configure 1–24 named commands with a name (60 characters maximum) and value (256 characters maximum).') from error
 
 def serialize_commands(raw):
     return json.dumps(configured_commands(raw), ensure_ascii=False, separators=(',', ':'))

@@ -13,6 +13,7 @@ from routes.command_devices import sensor_for, authorize
 from routes.light_switches import authorize_device, get_doc, write_doc, key
 from switch_control import now_utc
 from calibration_events import CalibrationEvent, PHASE, TERMINAL, session_view, notification_for
+from controller_activity import ControllerActivityEvent
 from workflow_notifications import publish_event
 
 router = APIRouter(prefix='/command-devices', tags=['Device calibration'])
@@ -40,7 +41,10 @@ def public_event(row):
         'selection_at': row['selection_at']}
 
 @router.post('/{serial}/events')
-def ingest(serial: str, body: CalibrationEvent, x_sensor_key: str | None = Header(None)):
+def ingest(serial: str, body: CalibrationEvent | ControllerActivityEvent, x_sensor_key: str | None = Header(None)):
+    if isinstance(body, ControllerActivityEvent):
+        from routes.controller_activity import ingest_activity
+        return ingest_activity(serial, body, x_sensor_key)
     sensor = sensor_for(serial)
     authorize_device(sensor, x_sensor_key)
     event = body.model_dump(mode='json')

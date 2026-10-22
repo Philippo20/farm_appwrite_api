@@ -43,6 +43,7 @@ from routes.messaging import messaging_router
 from backups import backups_router
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from routes.controller_activity import router as controller_activity_router
 from production_reminders import production_lifespan
 
 app = FastAPI(
@@ -100,6 +101,7 @@ app.include_router(device_maintenance_router)
 app.include_router(light_switch_router)
 app.include_router(command_device_router)
 app.include_router(calibration_event_router)
+app.include_router(controller_activity_router)
 app.include_router(collection12_router)
 app.include_router(collection13_router)
 app.include_router(collection14_router)

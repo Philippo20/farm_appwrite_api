@@ -34,6 +34,9 @@ class SensorType(str, Enum):
     LIGHT = "light"
     LIGHT_SWITCH = "light_switch"
     COMMAND_DEVICE = "command_device"
+    GROW_LIGHT = "grow_light"
+    FEEDING_PUMP = "feeding_pump"
+    DRAINAGE_PUMP = "drainage_pump"
     PH_LEVEL = "pH Level"
     EC_LEVEL = "EC Level"
     WATER_LEVEL = "Water level"
@@ -71,6 +74,9 @@ def _sensor_document_payload(
     maintenance_plan: Optional[list] = None,
     command_config: Optional[str] = None,
 ) -> dict:
+    from controller_activity import EQUIPMENT_OUTPUTS
+    if sensortype in EQUIPMENT_OUTPUTS and maintenance_plan is None:
+        raise HTTPException(422, 'Register linked equipment using Device and maintenance settings.')
     try:
         maintenance = ({'maintenance_frequency': 'Per task' if maintenance_plan else 'Not required',
                         'last_maintenance_date': last_maintenance_date} if maintenance_plan is not None
@@ -445,7 +451,7 @@ def ingest_sensor_reading(
     x_sensor_key: Annotated[Optional[str], Header(alias="x-sensor-key")] = None,
 ):
     serial_number = str(payload.get("serial_number", "")).strip()
-    if payload.get('sensortype') == 'command_device':
+    if payload.get('sensortype') in {'command_device', 'grow_light', 'feeding_pump', 'drainage_pump'}:
         raise HTTPException(422, 'Command devices use their authenticated poll and acknowledgement endpoints.')
     if not serial_number:
         raise HTTPException(status_code=400, detail="serial_number is required")
@@ -469,7 +475,7 @@ def ingest_sensor_reading(
 
     if existing["total"] > 0:
         sensor = existing["documents"][0]
-        if sensor.get('sensortype') == 'command_device':
+        if sensor.get('sensortype') in {'command_device', 'grow_light', 'feeding_pump', 'drainage_pump'} or sensor.get('controller_id'):
             raise HTTPException(422, 'Command devices do not accept numeric sensor readings.')
         farm_id = str(payload.get("farmID") or sensor.get("farmID") or "").strip()
         _validate_sensor_key(x_sensor_key, farm_id)
@@ -631,6 +637,10 @@ def update_sensor(
             collection_id=db_collection_id11,
             document_id=sensors_id,
         )
+        from equipment_links import guard_controller_change
+        if previous_sensor.get('controller_id'):
+            raise HTTPException(422, 'Edit linked equipment using Device and maintenance settings.')
+        guard_controller_change(db, db_id, db_collection_id11, previous_sensor, sensortype.value, farmID)
         if sensortype == SensorType.COMMAND_DEVICE or previous_sensor.get('sensortype') == 'command_device':
             _command_admin(authorization, x_active_role)
             if sensortype == SensorType.COMMAND_DEVICE:
@@ -696,10 +706,20 @@ def delete_sensor(sensors_id:str, authorization: Annotated[Optional[str], Header
         previous = db.get_document(database_id=db_id, collection_id=db_collection_id11, document_id=sensors_id)
         if previous.get('sensortype') == 'command_device':
             _command_admin(authorization, x_active_role)
+        if previous.get('controller_id'):
+            from routes.messaging import current_member
+            actor = current_member(authorization or '', x_active_role)
+            from device_maintenance import can_manage
+            farm = db.get_document(db_id, db_collection_id2, previous['farmID'])
+            if not can_manage(actor, farm):
+                raise HTTPException(403, 'Only administrators and assigned technicians can remove equipment.')
+        from equipment_links import guard_controller_change, release
+        guard_controller_change(db, db_id, db_collection_id11, previous)
         db.delete_document(
             database_id=db_id,
             collection_id=db_collection_id11, 
             document_id=sensors_id)
+        release(db, db_id, previous)
         return {"message": f"User with ID {sensors_id} deleted successfully"}
     except HTTPException:
         raise
