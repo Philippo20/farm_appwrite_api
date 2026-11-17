@@ -80,6 +80,8 @@ def reminder_events(batches, today):
     """One next-start reminder per farm/plant stream; stage reminders per active batch."""
     streams = {}
     for batch in batches:
+        if batch.get('historical_import'):
+            continue
         plan = read_plan(batch.get('production_plan'))
         if not plan:
             continue

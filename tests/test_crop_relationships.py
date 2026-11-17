@@ -43,6 +43,7 @@ class CropLinkRouteTests(unittest.TestCase):
         self.db.get_document.side_effect = get
         self.db.create_document.side_effect = lambda **kwargs: {'$id': 'c', **kwargs['data']}
         self.db.update_document.side_effect = lambda **kwargs: {'$id': 'c', **kwargs['data']}
+        self.db.list_documents.return_value = {'documents': [], 'total': 0}
         self.storage.create_file.return_value = {'$id': 'image'}
         self.data = dict(crop_name='Label', variety_name='Batavia', plant_type_ID='p', plant_duration_value='30',
                         plant_duration_unit='days', harvesting_weight='1', company='Seed Co', sprouting_ratio='90',
@@ -67,6 +68,20 @@ class CropLinkRouteTests(unittest.TestCase):
         response = self.client.post('/crops/info', data=self.data, files={'crop_image': ('crop.png', b'image', 'image/png')})
         self.assertEqual(response.status_code, 422)
         self.storage.create_file.assert_not_called(); self.db.create_document.assert_not_called()
+
+    def test_batch_code_normalized_and_duplicates_rejected(self):
+        self.old['plant_type_ID'] = 'p'
+        response = self.client.put('/crops/info/c', data={'batch_code': 'bl'})
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()['updated_fields']['batch_code'], 'BL')
+        self.db.list_documents.return_value = {'documents': [{'$id': 'other', 'batch_code': 'BL'}]}
+        self.assertEqual(self.client.put('/crops/info/c', data={'batch_code': 'BL'}).status_code, 422)
+
+    def test_used_batch_code_cannot_be_reassigned(self):
+        self.old['plant_type_ID'] = 'p'
+        self.old['batch_code'] = 'BL'
+        self.db.list_documents.return_value = {'documents': [{'$id': 'batch'}]}
+        self.assertEqual(self.client.put('/crops/info/c', data={'batch_code': 'NEW'}).status_code, 409)
 
     def test_crop_list_loads_every_page(self):
         pages = [[{'$id': str(i), 'crop_image_url': 'https://example.test/a.png'} for i in range(100)],

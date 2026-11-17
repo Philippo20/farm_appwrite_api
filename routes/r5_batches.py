@@ -27,12 +27,14 @@ from appwrite.query import Query
 from appwrite.input_file import InputFile
 from storage import st
 from audit_utils import write_audit
+from batch_numbers import allocate_number, clean_code, COLLECTION as NUMBER_RESERVATIONS
 
 
 collection5_router = APIRouter(tags=["Batches"])
 
 
 class ProductionStatus(str, Enum):
+    UNKNOWN = "Unknown"
     PLANTED = "Planted"
     GROWING = "Growing"
     HARVESTED = "Harvested"
@@ -51,7 +53,6 @@ class DeliveryStatus(str, Enum):
 
 @collection5_router.post("/batches/info")
 async def register_batch(
-        batch_no: Annotated[str, Form(...)],
         farmID: Annotated[str, Form(...)],
         farm_name: Annotated[str, Form(...)],
         plant_type_ID: Annotated[str, Form(...)],
@@ -70,6 +71,7 @@ async def register_batch(
         growing_group_id: Annotated[Optional[str], Form()] = None,
         growing_group_name: Annotated[str, Form()] = '',
         crop_variety_id: Annotated[Optional[str], Form()] = None,
+        batch_no: Annotated[str, Form()] = '',
         actor: dict = Depends(current_member),
         ):
     now = datetime.now(timezone.utc).isoformat()
@@ -142,6 +144,18 @@ async def register_batch(
 
         variety_fields = assigned_batch_variety(farm, plant_type_ID, plant_name, plant_variety, crop_variety_id,
             lambda identity: db.get_document(db_id, db_collection_id16, identity))
+        catalog = list_all_documents(db, database_id=db_id, collection_id=db_collection_id16)['documents']
+        variety_id = variety_fields.get('crop_variety_id') or crop_variety_id
+        matches = [c for c in catalog if (c['$id'] == variety_id if variety_id else
+            c.get('plant_type_ID') == plant_type_ID and str(c.get('variety_name', '')).strip().casefold() == plant_variety.strip().casefold())]
+        if len(matches) != 1:
+            raise HTTPException(422, 'Select a crop variety linked to the plant catalog.')
+        crop = matches[0]
+        try: code = clean_code(crop.get('batch_code'))
+        except ValueError as error: raise HTTPException(422, str(error)) from error
+        if any(c['$id'] != crop['$id'] and str(c.get('batch_code') or '').upper() == code for c in catalog):
+            raise HTTPException(422, 'This batch code belongs to multiple varieties. Give each variety a unique code.')
+        variety_fields.update(crop_variety_id=crop['$id'], plant_variety=crop['variety_name'])
 
         plan = validate_plan(plant_type.get("production_plan"))
         if plan:
@@ -164,6 +178,11 @@ async def register_batch(
             download_url = f"{appwrite_endpoint}/storage/buckets/{bucket_id}/files/{file_id}/download?project={project_id}"
 
 
+        # Clients never allocate sequence numbers. A durable unique reservation
+        # prevents concurrent requests across API workers from reusing one.
+        batch_no = allocate_number(db, db_id, farmID, code, start_date,
+            list_all_documents(db, database_id=db_id, collection_id=db_collection_id5)['documents'],
+            list_all_documents(db, database_id=db_id, collection_id=NUMBER_RESERVATIONS)['documents'])
         # Save URLs to Appwrite Database
         document_id = ID.unique()
         batches_info = db.create_document(
@@ -210,6 +229,7 @@ async def register_batch(
         return {
             "message": "Batches information created successfully",
              "batch_id": batches_info["$id"],
+             "batch_no": batch_no,
              "harvest_image_id": file_id,
              "harvest_image_url": view_url,
              "download_url": download_url

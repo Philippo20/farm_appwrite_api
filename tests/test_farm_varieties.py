@@ -29,7 +29,9 @@ class FarmVarietyRouteTests(unittest.TestCase):
             return {'f': self.farm, 'p': self.plant, 'care': {'name': 'Caretaker', 'role': 'caretaker', 'status': 'Active'},
                     'batch': self.batch, **self.crops}[identity]
         self.db.get_document.side_effect = get
-        self.db.list_documents.return_value = {'documents': [], 'total': 0}
+        self.crops['a']['batch_code'] = 'BL'
+        self.crops['b']['batch_code'] = 'LL'
+        self.db.list_documents.side_effect = lambda **kw: {'documents': list(self.crops.values()) if kw['collection_id'] == batches.db_collection_id16 else [], 'total': 0}
         self.db.create_document.side_effect = lambda **kw: {'$id': 'created', **kw['data']}
         self.db.update_document.side_effect = lambda **kw: {'$id': 'updated', **kw['data']}
         for route in [farms, batches]:
@@ -76,6 +78,8 @@ class FarmVarietyRouteTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200, response.text)
         saved = self.db.create_document.call_args.kwargs['data']
         self.assertEqual(saved['crop_variety_id'], 'b'); self.assertEqual(saved['plant_variety'], 'Lollo Rosso')
+        self.assertEqual(saved['batch_no'], 'LL 08-10-2026-1')
+        self.assertEqual(response.json()['batch_no'], saved['batch_no'])
         self.db.create_document.reset_mock()
         for identity in ['c', 'd']:
             response = self.client.post('/batches/info', data={**self.batch_data, 'crop_variety_id': identity})

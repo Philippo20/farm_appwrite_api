@@ -88,6 +88,9 @@ class RouteTests(unittest.TestCase):
             return {'plants': self.plant, 'farms': {'name': 'Farm', 'caretakerID': 'care'},
                     'users': {'name': 'Caretaker'}, 'batches': self.saved}[kw['collection_id']]
         self.db.get_document.side_effect = get
+        self.db.list_documents.side_effect = lambda **kw: {'documents': [
+            {'$id': 'green', 'plant_type_ID': 'plant', 'variety_name': 'Green', 'batch_code': 'GR'}
+        ] if kw['collection_id'] == 'crops' else []}
         self.db.create_document.side_effect = lambda **kw: {'$id': 'created', **kw['data']}
         self.db.update_document.side_effect = lambda **kw: {'$id': 'updated', **kw['data']}
         app = FastAPI()

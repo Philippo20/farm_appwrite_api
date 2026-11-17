@@ -106,12 +106,12 @@ def batch_caretaker_records(batch_id: str, limit: int = RequestQuery(100, ge=1, 
 
 
 @collection24_router.get("/farm-records")
-def get_farm_records(limit: int = 100, offset: int = 0):
+def get_farm_records(limit: int = RequestQuery(100, ge=1, le=100), offset: int = RequestQuery(0, ge=0)):
     try:
         result = db.list_documents(
             database_id=db_id,
             collection_id=db_collection_id24,
-            queries=[Query.limit(limit), Query.offset(offset)],
+            queries=[Query.order_asc('$createdAt'), Query.order_asc('$id'), Query.limit(limit), Query.offset(offset)],
         )
         docs = result.get("documents", [])
         return {"count": len(docs), "users": docs}

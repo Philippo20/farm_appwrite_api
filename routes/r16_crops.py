@@ -4,12 +4,24 @@ from enum import Enum
 from main import db_id, db_collection_id16, client, bucket_id, project_id, appwrite_endpoint
 from db import db
 from appwrite.id import ID
+from appwrite.query import Query
 from appwrite.input_file import InputFile
 from storage import st
 from audit_utils import write_audit
 from main import db_collection_id3
 from document_paging import list_all_documents
 from crop_relationships import crop_plant_link
+from batch_numbers import clean_code
+
+
+def _batch_code(value, identity=None):
+    if not str(value or '').strip(): return ''
+    try: code = clean_code(value)
+    except ValueError as error: raise HTTPException(422, str(error)) from error
+    crops = list_all_documents(db, database_id=db_id, collection_id=db_collection_id16)['documents']
+    if any(c['$id'] != identity and str(c.get('batch_code') or '').upper() == code for c in crops):
+        raise HTTPException(422, 'This batch code is already assigned to another variety.')
+    return code
 
 
 def _plant_link(identity, name, previous=None):
@@ -76,6 +88,7 @@ async def register_crops_info(
     humidity_max: Annotated[float, Form()],
     created_by: Annotated[str, Form(...)],
     plant_type_ID: Annotated[str, Form()] = '',
+    batch_code: Annotated[str, Form()] = '',
 ):
     if plant_duration_value <= 0:
         raise HTTPException(
@@ -83,6 +96,7 @@ async def register_crops_info(
             detail="Plant duration must be greater than zero",
         )
     link = _plant_link(plant_type_ID, crop_name)
+    code = _batch_code(batch_code)
     file_bytes = await crop_image.read()
     
     try:
@@ -106,6 +120,7 @@ async def register_crops_info(
             "crop_image_download_url": download_url,
             **link,
             "variety_name": variety_name,
+            "batch_code": code,
             "plant_duration_value": plant_duration_value,
             "plant_duration_unit": plant_duration_unit.value,
             "harvesting_weight": harvesting_weight,
@@ -212,6 +227,7 @@ async def update_crops_info(
     humidity_max: Annotated[float, Form()]= None,
     created_by: Annotated[str, Form(...)]= None,
     plant_type_ID: Annotated[str | None, Form()] = None,
+    batch_code: Annotated[str | None, Form()] = None,
 ):
     if plant_duration_value is not None and plant_duration_value <= 0:
         raise HTTPException(
@@ -225,6 +241,15 @@ async def update_crops_info(
         )
     previous_crop = db.get_document(db_id, db_collection_id16, document_id)
     update_data = _plant_link(plant_type_ID, crop_name or previous_crop.get('crop_name', ''), previous_crop)
+    if batch_code is not None:
+        code = _batch_code(batch_code, document_id)
+        if previous_crop.get('batch_code') and code != previous_crop['batch_code']:
+            from main import db_collection_id5
+            used = db.list_documents(db_id, db_collection_id5,
+                queries=[Query.equal('crop_variety_id', [document_id]),
+                         Query.limit(1)])['documents']
+            if used: raise HTTPException(409, 'The batch code cannot change after batches use this variety.')
+        update_data['batch_code'] = code
     view_url = None
     download_url = None
 
