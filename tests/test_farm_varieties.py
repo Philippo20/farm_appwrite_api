@@ -86,6 +86,39 @@ class FarmVarietyRouteTests(unittest.TestCase):
             self.assertEqual(response.status_code, 422, response.text)
         self.db.create_document.assert_not_called()
 
+    def test_harvest_quantity_calculates_catalog_weight_for_every_role(self):
+        self.crops['a']['harvesting_weight'] = 113
+        for role in ['admin', 'superadmin', 'farm_manager']:
+            self.actor['role'] = role
+            response = self.client.put('/batches/batch', data={'total_harvested': '100', 'total_weight_kg': '999'})
+            self.assertEqual(response.status_code, 200, response.text)
+            self.assertEqual(self.db.update_document.call_args.kwargs['data']['total_weight_kg'], 11.3)
+
+    def test_note_edits_preserve_existing_measured_weight(self):
+        self.batch.update(total_harvested=100, total_weight_kg=12.345)
+        self.crops['a']['harvesting_weight'] = 113
+        response = self.client.put('/batches/batch', data={'total_harvested': '100', 'technical_issues': 'Note'})
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertNotIn('total_weight_kg', self.db.update_document.call_args.kwargs['data'])
+
+    def test_variety_change_recalculates_and_missing_configuration_is_explicit(self):
+        self.batch['total_harvested'] = 100
+        self.crops['b']['harvesting_weight'] = 20
+        response = self.client.put('/batches/batch', data={'plant_variety': 'Lollo Rosso', 'crop_variety_id': 'b'})
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(self.db.update_document.call_args.kwargs['data']['total_weight_kg'], 2)
+        response = self.client.put('/batches/batch', data={'total_harvested': '100', 'calculate_harvest_weight': 'true'})
+        self.assertEqual(response.status_code, 422, response.text)
+
+    def test_missing_crop_weight_allows_manual_or_unknown_without_stale_total(self):
+        self.batch.update(total_harvested=10, total_weight_kg=1.13)
+        response = self.client.put('/batches/batch', data={'total_harvested': '20'})
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertIsNone(self.db.update_document.call_args.kwargs['data']['total_weight_kg'])
+        response = self.client.put('/batches/batch', data={'total_harvested': '20', 'total_weight_kg': '2.5'})
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(self.db.update_document.call_args.kwargs['data']['total_weight_kg'], 2.5)
+
     def test_batch_variety_edits_validate_assignment_but_historical_notes_still_save(self):
         response = self.client.put('/batches/batch', data={'plant_variety': 'Green', 'crop_variety_id': 'd'})
         self.assertEqual(response.status_code, 422, response.text)

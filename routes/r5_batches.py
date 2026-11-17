@@ -28,6 +28,7 @@ from appwrite.input_file import InputFile
 from storage import st
 from audit_utils import write_audit
 from batch_numbers import allocate_number, clean_code, COLLECTION as NUMBER_RESERVATIONS
+from harvest_weights import crop_for_batch, harvest_weight_kg
 
 
 collection5_router = APIRouter(tags=["Batches"])
@@ -293,6 +294,7 @@ async def update_batch(
     growing_group_id: Annotated[Optional[str], Form()] = None,
     growing_group_name: Annotated[str, Form()] = '',
     crop_variety_id: Annotated[Optional[str], Form()] = None,
+    calculate_harvest_weight: Annotated[bool, Form()] = False,
     actor: dict = Depends(current_member),
 ):
     try:
@@ -338,6 +340,22 @@ async def update_batch(
                         detail=f"{key} cannot be negative.",
                     )
                 update_data[key] = value
+
+        count = total_harvested if total_harvested is not None else previous.get('total_harvested')
+        changed_count = total_harvested is not None and total_harvested != previous.get('total_harvested')
+        changed_variety = update_data.get('crop_variety_id', previous.get('crop_variety_id')) != previous.get('crop_variety_id') or update_data.get('plant_variety', previous.get('plant_variety')) != previous.get('plant_variety')
+        if calculate_harvest_weight or changed_count or (changed_variety and count is not None):
+            catalog = list_all_documents(db, database_id=db_id, collection_id=db_collection_id16)['documents']
+            crop = crop_for_batch({**previous, **update_data}, catalog)
+            calculated = harvest_weight_kg(count, crop)
+            if calculated is not None:
+                update_data['total_weight_kg'] = calculated
+            elif calculate_harvest_weight:
+                raise HTTPException(422, 'Set a valid harvest weight in grams on the selected crop variety first.')
+            elif total_weight_kg is None:
+                # A changed quantity cannot retain a weight calculated for the
+                # previous quantity when no catalog/manual weight is available.
+                update_data['total_weight_kg'] = None
 
         def parse_stored_date(value):
             try:
